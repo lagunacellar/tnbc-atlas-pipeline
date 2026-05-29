@@ -1,0 +1,906 @@
+# TNBC Atlas — Tier-1 Foundational Papers
+#
+# Hand-curated seed list of field-defining TNBC papers.
+# Used as: (a) ground-truth recall benchmark for any harvest run,
+#          (b) seed for tier=1 assignment in the bibliography,
+#          (c) starting reading list for Phase 2 synthesis writers.
+#
+# Confidence levels:
+#   high   = appears on multiple published bibliometric top-100 lists, or is a
+#            named pivotal trial / subtype-defining paper widely cited
+#   medium = important within sub-area; a domain expert would defend inclusion
+#            but reasonable people might tier differently
+#   low    = editorial seed; needs review by the editorial board before promotion
+#
+# Sources:
+#   bib2022   = Clin Exp Med 2022 "top 100 most cited TNBC articles"
+#   adc2024   = Discover Oncology 2024 ADC-in-TNBC bibliometric
+#   io2024    = Frontiers in Oncology 2024 immunotherapy-in-TNBC bibliometric
+#   neoadj24  = Frontiers 2024 neoadjuvant-TNBC bibliometric
+#   editorial = my reading; needs editorial board confirmation
+#
+# Domain codes follow Phase 2 plan §2:
+#   A = epidemiology and disparities
+#   B = biology and molecular subtypes
+#   C = diagnosis and pathology
+#   D = treatment — early-stage
+#   E = treatment — metastatic
+#   F = immunotherapy
+#   G = computational / ML / AI
+#   H = clinical trial methodology
+#   I = survivorship and supportive care
+#   J = patient experience and ethics
+#
+# Schema version: 1
+# Last updated: 2026-05-15
+# Maintainer: Editorial PI (TBD)
+
+version: 1
+total_entries: 78
+
+entries:
+
+# ============================================================
+# B. Biology and molecular subtypes
+# ============================================================
+
+- id: tier1-perou2000
+  title: "Molecular portraits of human breast tumours"
+  authors: ["Perou CM", "Sørlie T", "Eisen MB", "van de Rijn M", "Jeffrey SS", "Rees CA", "Pollack JR", "Ross DT", "Johnsen H", "Akslen LA", "Fluge O", "Pergamenschikov A", "Williams C", "Zhu SX", "Lønning PE", "Børresen-Dale AL", "Brown PO", "Botstein D"]
+  year: 2000
+  journal: "Nature"
+  doi: "10.1038/35021093"
+  pmid: "10963602"
+  domain: B
+  subtopic: intrinsic-subtypes
+  rationale: "Defined the intrinsic subtypes (luminal A/B, HER2-enriched, basal-like, normal-like) — the framework under which 'TNBC' became a research category."
+  confidence: high
+  source: bib2022
+
+- id: tier1-sorlie2001
+  title: "Gene expression patterns of breast carcinomas distinguish tumor subclasses with clinical implications"
+  authors: ["Sørlie T", "Perou CM", "Tibshirani R", "Aas T", "Geisler S", "Johnsen H", "Hastie T", "Eisen MB", "van de Rijn M", "Jeffrey SS", "Thorsen T", "Quist H", "Matese JC", "Brown PO", "Botstein D", "Lønning PE", "Børresen-Dale AL"]
+  year: 2001
+  journal: "Proceedings of the National Academy of Sciences"
+  doi: "10.1073/pnas.191367098"
+  pmid: "11553815"
+  domain: B
+  subtopic: intrinsic-subtypes
+  rationale: "Confirmed and refined intrinsic subtypes; tied subtypes to clinical outcomes."
+  confidence: high
+  source: bib2022
+
+- id: tier1-parker2009
+  title: "Supervised risk predictor of breast cancer based on intrinsic subtypes"
+  authors: ["Parker JS", "Mullins M", "Cheang MC", "Leung S", "Voduc D", "Vickery T", "Davies S", "Fauron C", "He X", "Hu Z", "Quackenbush JF", "Stijleman IJ", "Palazzo J", "Marron JS", "Nobel AB", "Mardis E", "Nielsen TO", "Ellis MJ", "Perou CM", "Bernard PS"]
+  year: 2009
+  journal: "Journal of Clinical Oncology"
+  doi: "10.1200/JCO.2008.18.1370"
+  pmid: "19204204"
+  domain: B
+  subtopic: intrinsic-subtypes-pam50
+  rationale: "PAM50 — the 50-gene classifier that operationalized intrinsic-subtype testing for clinical use."
+  confidence: high
+  source: bib2022
+
+- id: tier1-lehmann2011
+  title: "Identification of human triple-negative breast cancer subtypes and preclinical models for selection of targeted therapies"
+  authors: ["Lehmann BD", "Bauer JA", "Chen X", "Sanders ME", "Chakravarthy AB", "Shyr Y", "Pietenpol JA"]
+  year: 2011
+  journal: "Journal of Clinical Investigation"
+  doi: "10.1172/JCI45014"
+  pmid: "21633166"
+  domain: B
+  subtopic: tnbc-subtypes-lehmann
+  rationale: "The TNBC-specific subtyping paper (six subtypes: BL1, BL2, IM, M, MSL, LAR). Among the most-cited TNBC papers ever."
+  confidence: high
+  source: bib2022
+
+- id: tier1-chen2012-tnbctype
+  title: "TNBCtype: A Subtyping Tool for Triple-Negative Breast Cancer"
+  authors: ["Chen X", "Li J", "Gray WH", "Lehmann BD", "Bauer JA", "Shyr Y", "Pietenpol JA"]
+  year: 2012
+  journal: "Cancer Informatics"
+  doi: "10.4137/CIN.S9983"
+  pmid: "22872785"
+  domain: B
+  subtopic: tnbc-subtypes-tooling
+  rationale: "Web-based subtyping tool that operationalized the Lehmann/Pietenpol framework for downstream research."
+  confidence: high
+  source: editorial
+
+- id: tier1-curtis2012-metabric
+  title: "The genomic and transcriptomic architecture of 2,000 breast tumours reveals novel subgroups"
+  authors: ["Curtis C", "Shah SP", "Chin SF", "Turashvili G", "Rueda OM", "Dunning MJ", "Speed D", "Lynch AG", "Samarajiwa S", "Yuan Y", "Gräf S", "Ha G", "Haffari G", "Bashashati A", "Russell R", "McKinney S", "METABRIC Group", "Caldas C", "Aparicio S"]
+  year: 2012
+  journal: "Nature"
+  doi: "10.1038/nature10983"
+  pmid: "22522925"
+  domain: B
+  subtopic: integrated-genomics
+  rationale: "METABRIC — large multi-omic breast cancer cohort that established 10 integrative clusters."
+  confidence: high
+  source: bib2022
+
+- id: tier1-tcga2012-brca
+  title: "Comprehensive molecular portraits of human breast tumours"
+  authors: ["Cancer Genome Atlas Network"]
+  year: 2012
+  journal: "Nature"
+  doi: "10.1038/nature11412"
+  pmid: "23000897"
+  domain: B
+  subtopic: integrated-genomics
+  rationale: "TCGA-BRCA — the canonical multi-platform breast cancer molecular dataset."
+  confidence: high
+  source: bib2022
+
+- id: tier1-burstein2015
+  title: "Comprehensive genomic analysis identifies novel subtypes and targets of triple-negative breast cancer"
+  authors: ["Burstein MD", "Tsimelzon A", "Poage GM", "Covington KR", "Contreras A", "Fuqua SA", "Savage MI", "Osborne CK", "Hilsenbeck SG", "Chang JC", "Mills GB", "Lau CC", "Brown PH"]
+  year: 2015
+  journal: "Clinical Cancer Research"
+  doi: "10.1158/1078-0432.CCR-14-0432"
+  pmid: "25208879"
+  domain: B
+  subtopic: tnbc-subtypes-burstein
+  rationale: "Burstein four-subtype framework (BLIA, BLIS, MES, LAR) — alternative to Lehmann."
+  confidence: high
+  source: bib2022
+
+- id: tier1-lehmann2016-refinement
+  title: "Refinement of Triple-Negative Breast Cancer Molecular Subtypes: Implications for Neoadjuvant Chemotherapy Selection"
+  authors: ["Lehmann BD", "Jovanovic B", "Chen X", "Estrada MV", "Johnson KN", "Shyr Y", "Moses HL", "Sanders ME", "Pietenpol JA"]
+  year: 2016
+  journal: "PLoS ONE"
+  doi: "10.1371/journal.pone.0157368"
+  pmid: "27310713"
+  domain: B
+  subtopic: tnbc-subtypes-lehmann
+  rationale: "Collapsed Lehmann's six subtypes to four after correcting for tumor-infiltrating-lymphocyte contamination."
+  confidence: high
+  source: editorial
+
+- id: tier1-bareche2018
+  title: "Unravelling triple-negative breast cancer molecular heterogeneity using an integrative multi-omic analysis"
+  authors: ["Bareche Y", "Venet D", "Ignatiadis M", "Aftimos P", "Piccart M", "Rothe F", "Sotiriou C"]
+  year: 2018
+  journal: "Annals of Oncology"
+  doi: "10.1093/annonc/mdy024"
+  pmid: "29365031"
+  domain: B
+  subtopic: tnbc-multi-omic
+  rationale: "Multi-omic integration that reconciled and extended Lehmann/Burstein subtype frameworks."
+  confidence: high
+  source: editorial
+
+- id: tier1-jiang2019-fuscc
+  title: "Genomic and Transcriptomic Landscape of Triple-Negative Breast Cancers: Subtypes and Treatment Strategies"
+  authors: ["Jiang YZ", "Ma D", "Suo C", "Shi J", "Xue M", "Hu X", "Xiao Y", "Yu KD", "Liu YR", "Yu Y", "Zheng Y", "Li X", "Zhang C", "Hu P", "Zhang J", "Hua Q", "Zhang J", "Hou W", "Ren L", "Bao D", "Li B", "Yang J", "Yao L", "Zuo WJ", "Zhao S", "Gong Y", "Ren YX", "Zhao YX", "Yang YS", "Niu Z", "Cao ZG", "Stover DG", "Verschraegen C", "Kaklamani V", "Daemen A", "Benson JR", "Takabe K", "Bai F", "Li DQ", "Wang P", "Shi L", "Huang W", "Shao ZM"]
+  year: 2019
+  journal: "Cancer Cell"
+  doi: "10.1016/j.ccell.2019.02.001"
+  pmid: "30853353"
+  domain: B
+  subtopic: tnbc-multi-omic-cohort
+  rationale: "FUSCC TNBC cohort — large East Asian patient cohort with paired multi-omics and refined subtype framework."
+  confidence: high
+  source: editorial
+
+- id: tier1-karaayvaz2018-singlecell
+  title: "Unravelling subclonal heterogeneity and aggressive disease states in TNBC through single-cell RNA-sequencing"
+  authors: ["Karaayvaz M", "Cristea S", "Gillespie SM", "Patel AP", "Mylvaganam R", "Luo CC", "Specht MC", "Bernstein BE", "Michor F", "Ellisen LW"]
+  year: 2018
+  journal: "Nature Communications"
+  doi: "10.1038/s41467-018-06052-0"
+  pmid: "30181541"
+  domain: B
+  subtopic: tnbc-single-cell
+  rationale: "Single-cell RNA-seq dissection of TNBC intratumor heterogeneity."
+  confidence: high
+  source: editorial
+
+# ============================================================
+# A. Epidemiology and disparities
+# ============================================================
+
+- id: tier1-carey2006-paradox
+  title: "Race, breast cancer subtypes, and survival in the Carolina Breast Cancer Study"
+  authors: ["Carey LA", "Perou CM", "Livasy CA", "Dressler LG", "Cowan D", "Conway K", "Karaca G", "Troester MA", "Tse CK", "Edmiston S", "Deming SL", "Geradts J", "Cheang MC", "Nielsen TO", "Moorman PG", "Earp HS", "Millikan RC"]
+  year: 2006
+  journal: "JAMA"
+  doi: "10.1001/jama.295.21.2492"
+  pmid: "16757721"
+  domain: A
+  subtopic: disparities-ancestry
+  rationale: "Established higher prevalence of basal-like/TNBC in young African American women — the disparity-paradigm paper."
+  confidence: high
+  source: bib2022
+
+- id: tier1-stark2010-ancestry
+  title: "African ancestry and higher prevalence of triple-negative breast cancer: findings from an international study"
+  authors: ["Stark A", "Kleer CG", "Martin I", "Awuah B", "Nsiah-Asare A", "Takyi V", "Braman M", "Quayson SE", "Zarbo R", "Wicha M", "Newman L"]
+  year: 2010
+  journal: "Cancer"
+  doi: "10.1002/cncr.25276"
+  pmid: "20629078"
+  domain: A
+  subtopic: disparities-ancestry
+  rationale: "Cross-continental study confirming TNBC enrichment in West African ancestry."
+  confidence: high
+  source: editorial
+
+- id: tier1-newman2017
+  title: "Health Disparities and Triple-Negative Breast Cancer in African American Women: A Review"
+  authors: ["Newman LA", "Kaljee LM"]
+  year: 2017
+  journal: "JAMA Surgery"
+  doi: "10.1001/jamasurg.2017.0005"
+  pmid: "28297031"
+  domain: A
+  subtopic: disparities-review
+  rationale: "Definitive review of TNBC disparities mechanisms and clinical implications."
+  confidence: high
+  source: editorial
+
+- id: tier1-howard2021
+  title: "Epidemiology of Triple-Negative Breast Cancer: A Review"
+  authors: ["Howard FM", "Olopade OI"]
+  year: 2021
+  journal: "The Cancer Journal"
+  doi: "10.1097/PPO.0000000000000500"
+  pmid: "33475287"
+  domain: A
+  subtopic: epidemiology-review
+  rationale: "Modern epidemiology overview from the Olopade group."
+  confidence: high
+  source: editorial
+
+# ============================================================
+# C. Diagnosis and pathology
+# ============================================================
+
+- id: tier1-allison2020-er-pr
+  title: "Estrogen and Progesterone Receptor Testing in Breast Cancer: ASCO/CAP Guideline Update"
+  authors: ["Allison KH", "Hammond MEH", "Dowsett M", "McKernin SE", "Carey LA", "Fitzgibbons PL", "Hayes DF", "Lakhani SR", "Chavez-MacGregor M", "Perlmutter J", "Perou CM", "Regan MM", "Rimm DL", "Symmans WF", "Torlakovic EE", "Varella L", "Viale G", "Weisberg TF", "McShane LM", "Wolff AC"]
+  year: 2020
+  journal: "Journal of Clinical Oncology"
+  doi: "10.1200/JCO.19.02309"
+  pmid: "31928404"
+  domain: C
+  subtopic: ihc-er-pr
+  rationale: "Authoritative ASCO/CAP guideline for ER/PR testing — defines part of the TNBC diagnostic boundary."
+  confidence: high
+  source: editorial
+
+- id: tier1-wolff2018-her2
+  title: "Human Epidermal Growth Factor Receptor 2 Testing in Breast Cancer: ASCO/CAP Clinical Practice Guideline Focused Update"
+  authors: ["Wolff AC", "Hammond MEH", "Allison KH", "Harvey BE", "Mangu PB", "Bartlett JMS", "Bilous M", "Ellis IO", "Fitzgibbons P", "Hanna W", "Jenkins RB", "Press MF", "Spears PA", "Vance GH", "Viale G", "McShane LM", "Dowsett M"]
+  year: 2018
+  journal: "Journal of Clinical Oncology"
+  doi: "10.1200/JCO.2018.77.8738"
+  pmid: "29846122"
+  domain: C
+  subtopic: ihc-her2
+  rationale: "ASCO/CAP HER2 testing guideline — defines the other side of the TNBC boundary, with critical implications for HER2-low classification."
+  confidence: high
+  source: editorial
+
+- id: tier1-tarantino2020-her2low
+  title: "HER2-Low Breast Cancer: Pathological and Clinical Landscape"
+  authors: ["Tarantino P", "Hamilton E", "Tolaney SM", "Cortes J", "Morganti S", "Ferraro E", "Marra A", "Viale G", "Trapani D", "Cardoso F", "Penault-Llorca F", "Viale G", "Andrè F", "Curigliano G"]
+  year: 2020
+  journal: "Journal of Clinical Oncology"
+  doi: "10.1200/JCO.19.02488"
+  pmid: "32330069"
+  domain: C
+  subtopic: her2-low-definition
+  rationale: "Defined the HER2-low category that overlaps substantially with what was historically called TNBC."
+  confidence: high
+  source: editorial
+
+- id: tier1-salgado2015-tils
+  title: "The evaluation of tumor-infiltrating lymphocytes (TILs) in breast cancer: recommendations by an International TILs Working Group 2014"
+  authors: ["Salgado R", "Denkert C", "Demaria S", "Sirtaine N", "Klauschen F", "Pruneri G", "Wienert S", "Van den Eynden G", "Baehner FL", "Penault-Llorca F", "Perez EA", "Thompson EA", "Symmans WF", "Richardson AL", "Brock J", "Criscitiello C", "Bailey H", "Ignatiadis M", "Floris G", "Sparano J", "Kos Z", "Nielsen T", "Rimm DL", "Allison KH", "Reis-Filho JS", "Loibl S", "Sotiriou C", "Viale G", "Badve S", "Adams S", "Willard-Gallo K", "Loi S"]
+  year: 2015
+  journal: "Annals of Oncology"
+  doi: "10.1093/annonc/mdu450"
+  pmid: "25214542"
+  domain: C
+  subtopic: tils-method
+  rationale: "International TILs Working Group consensus method for scoring TILs — operative for nearly all TNBC immune-microenvironment work since."
+  confidence: high
+  source: bib2022
+
+- id: tier1-loi2019-tils-prognostic
+  title: "Tumor-Infiltrating Lymphocytes and Prognosis: A Pooled Individual Patient Analysis of Early-Stage Triple-Negative Breast Cancers"
+  authors: ["Loi S", "Drubay D", "Adams S", "Pruneri G", "Francis PA", "Lacroix-Triki M", "Joensuu H", "Dieci MV", "Badve S", "Demaria S", "Gray R", "Munzone E", "Lemonnier J", "Sotiriou C", "Piccart MJ", "Kellokumpu-Lehtinen PL", "Vingiani A", "Gray K", "Andre F", "Denkert C", "Salgado R", "Michiels S"]
+  year: 2019
+  journal: "Journal of Clinical Oncology"
+  doi: "10.1200/JCO.18.01010"
+  pmid: "30650045"
+  domain: C
+  subtopic: tils-prognostic-tnbc
+  rationale: "Pooled individual-patient analysis establishing TILs as a prognostic biomarker in early-stage TNBC."
+  confidence: high
+  source: bib2022
+
+- id: tier1-denkert2018-tils
+  title: "Tumour-infiltrating lymphocytes and prognosis in different subtypes of breast cancer: a pooled analysis of 3771 patients treated with neoadjuvant therapy"
+  authors: ["Denkert C", "von Minckwitz G", "Darb-Esfahani S", "Lederer B", "Heppner BI", "Weber KE", "Budczies J", "Huober J", "Klauschen F", "Furlanetto J", "Schmitt WD", "Blohmer JU", "Karn T", "Pfitzner BM", "Kümmel S", "Engels K", "Schneeweiss A", "Hartmann A", "Noske A", "Fasching PA", "Jackisch C", "van Mackelenbergh M", "Sinn P", "Schem C", "Hanusch C", "Untch M", "Loibl S"]
+  year: 2018
+  journal: "The Lancet Oncology"
+  doi: "10.1016/S1470-2045(17)30904-X"
+  pmid: "29233559"
+  domain: C
+  subtopic: tils-pCR-prediction
+  rationale: "Demonstrated TILs predict pCR and outcomes across breast cancer subtypes including TNBC; foundational for downstream TIL/AI work."
+  confidence: high
+  source: editorial
+
+# ============================================================
+# D. Treatment — early-stage
+# ============================================================
+
+- id: tier1-vonminckwitz2012-pcr
+  title: "Definition and impact of pathologic complete response on prognosis after neoadjuvant chemotherapy in various intrinsic breast cancer subtypes"
+  authors: ["von Minckwitz G", "Untch M", "Blohmer JU", "Costa SD", "Eidtmann H", "Fasching PA", "Gerber B", "Eiermann W", "Hilfrich J", "Huober J", "Jackisch C", "Kaufmann M", "Konecny GE", "Denkert C", "Nekljudova V", "Mehta K", "Loibl S"]
+  year: 2012
+  journal: "Journal of Clinical Oncology"
+  doi: "10.1200/JCO.2011.38.8595"
+  pmid: "22508812"
+  domain: D
+  subtopic: pcr-endpoint
+  rationale: "Established pCR as a surrogate endpoint with prognostic meaning, especially in TNBC."
+  confidence: high
+  source: bib2022
+
+- id: tier1-cortazar2014-ctneobc
+  title: "Pathological complete response and long-term clinical benefit in breast cancer: the CTNeoBC pooled analysis"
+  authors: ["Cortazar P", "Zhang L", "Untch M", "Mehta K", "Costantino JP", "Wolmark N", "Bonnefoi H", "Cameron D", "Gianni L", "Valagussa P", "Swain SM", "Prowell T", "Loibl S", "Wickerham DL", "Bogaerts J", "Baselga J", "Perou C", "Blumenthal G", "Blohmer J", "Mamounas EP", "Bergh J", "Semiglazov V", "Justice R", "Eidtmann H", "Paik S", "Piccart M", "Sridhara R", "Fasching PA", "Slaets L", "Tang S", "Gerber B", "Geyer CE", "Pazdur R", "Ditsch N", "Rastogi P", "Eiermann W", "von Minckwitz G"]
+  year: 2014
+  journal: "The Lancet"
+  doi: "10.1016/S0140-6736(13)62422-8"
+  pmid: "24529560"
+  domain: D
+  subtopic: pcr-endpoint
+  rationale: "FDA-prompted pooled analysis of pCR as endpoint across 12 trials — landmark for trial design."
+  confidence: high
+  source: bib2022
+
+- id: tier1-sikov2015-calgb40603
+  title: "Impact of the addition of carboplatin and/or bevacizumab to neoadjuvant once-per-week paclitaxel followed by dose-dense doxorubicin and cyclophosphamide on pathologic complete response rates in stage II to III triple-negative breast cancer: CALGB 40603 (Alliance)"
+  authors: ["Sikov WM", "Berry DA", "Perou CM", "Singh B", "Cirrincione CT", "Tolaney SM", "Kuzma CS", "Pluard TJ", "Somlo G", "Port ER", "Golshan M", "Bellon JR", "Collyar D", "Hahn OM", "Carey LA", "Hudis CA", "Winer EP"]
+  year: 2015
+  journal: "Journal of Clinical Oncology"
+  doi: "10.1200/JCO.2014.57.0572"
+  pmid: "25092775"
+  domain: D
+  subtopic: neoadjuvant-platinum
+  rationale: "CALGB 40603 — established the role of carboplatin in neoadjuvant TNBC, key precursor to KEYNOTE-522 design."
+  confidence: high
+  source: neoadj24
+
+- id: tier1-loibl2018-brightness
+  title: "Addition of the PARP inhibitor veliparib plus carboplatin or carboplatin alone to standard neoadjuvant chemotherapy in triple-negative breast cancer (BrighTNess): a randomised, phase 3 trial"
+  authors: ["Loibl S", "O'Shaughnessy J", "Untch M", "Sikov WM", "Rugo HS", "McKee MD", "Huober J", "Golshan M", "von Minckwitz G", "Maag D", "Sullivan D", "Wolmark N", "McIntyre K", "Ponce Lorenzo JJ", "Metzger Filho O", "Rastogi P", "Symmans WF", "Liu X", "Geyer CE Jr"]
+  year: 2018
+  journal: "The Lancet Oncology"
+  doi: "10.1016/S1470-2045(18)30111-6"
+  pmid: "29501363"
+  domain: D
+  subtopic: neoadjuvant-parp
+  rationale: "BrighTNess — tested PARP-inhibitor addition to neoadjuvant chemo; informed sequencing decisions for BRCA-mutated TNBC."
+  confidence: high
+  source: neoadj24
+
+- id: tier1-symmans2017-rcb
+  title: "Long-Term Prognostic Risk After Neoadjuvant Chemotherapy Associated With Residual Cancer Burden and Breast Cancer Subtype"
+  authors: ["Symmans WF", "Wei C", "Gould R", "Yu X", "Zhang Y", "Liu M", "Walls A", "Bousamra A", "Ramineni M", "Sinn B", "Hunt K", "Buchholz TA", "Valero V", "Buzdar AU", "Yang W", "Brewster AM", "Moulder S", "Pusztai L", "Hatzis C", "Hortobagyi GN"]
+  year: 2017
+  journal: "Journal of Clinical Oncology"
+  doi: "10.1200/JCO.2015.63.1010"
+  pmid: "28135148"
+  domain: D
+  subtopic: rcb-endpoint
+  rationale: "Validated Residual Cancer Burden (RCB) as a continuous endpoint with strong prognostic discrimination after neoadjuvant therapy."
+  confidence: high
+  source: editorial
+
+- id: tier1-schmid2020-keynote522
+  title: "Pembrolizumab for Early Triple-Negative Breast Cancer"
+  authors: ["Schmid P", "Cortes J", "Pusztai L", "McArthur H", "Kümmel S", "Bergh J", "Denkert C", "Park YH", "Hui R", "Harbeck N", "Takahashi M", "Foukakis T", "Fasching PA", "Cardoso F", "Untch M", "Jia L", "Karantza V", "Zhao J", "Aktan G", "Dent R", "O'Shaughnessy J", "KEYNOTE-522 Investigators"]
+  year: 2020
+  journal: "New England Journal of Medicine"
+  doi: "10.1056/NEJMoa1910549"
+  pmid: "32101663"
+  domain: D
+  subtopic: keynote-522
+  rationale: "KEYNOTE-522 — practice-changing trial that added pembrolizumab to neoadjuvant chemo for early TNBC."
+  confidence: high
+  source: io2024
+
+- id: tier1-schmid2022-keynote522-efs
+  title: "Event-free Survival with Pembrolizumab in Early Triple-Negative Breast Cancer"
+  authors: ["Schmid P", "Cortes J", "Dent R", "Pusztai L", "McArthur H", "Kümmel S", "Bergh J", "Denkert C", "Park YH", "Hui R", "Harbeck N", "Takahashi M", "Untch M", "Fasching PA", "Cardoso F", "Andersen J", "Patt D", "Danso M", "Ferreira M", "Mouret-Reynier MA", "Im SA", "Ahn JH", "Gion M", "Baron-Hay S", "Boileau JF", "Ding Y", "Tryfonidis K", "Aktan G", "Karantza V", "O'Shaughnessy J"]
+  year: 2022
+  journal: "New England Journal of Medicine"
+  doi: "10.1056/NEJMoa2112651"
+  pmid: "35139274"
+  domain: D
+  subtopic: keynote-522
+  rationale: "Confirmed EFS benefit of KEYNOTE-522 regimen — solidified pembrolizumab + chemo as standard-of-care for early TNBC."
+  confidence: high
+  source: io2024
+
+# ============================================================
+# E. Treatment — metastatic
+# ============================================================
+
+- id: tier1-tutt2010-olaparib-poc
+  title: "Oral poly(ADP-ribose) polymerase inhibitor olaparib in patients with BRCA1 or BRCA2 mutations and advanced breast cancer: a proof-of-concept trial"
+  authors: ["Tutt A", "Robson M", "Garber JE", "Domchek SM", "Audeh MW", "Weitzel JN", "Friedlander M", "Arun B", "Loman N", "Schmutzler RK", "Wardley A", "Mitchell G", "Earl H", "Wickens M", "Carmichael J"]
+  year: 2010
+  journal: "The Lancet"
+  doi: "10.1016/S0140-6736(10)60892-6"
+  pmid: "20609467"
+  domain: E
+  subtopic: parp-brca
+  rationale: "Proof-of-concept that PARP inhibition works in BRCA-mutated breast cancer including TNBC."
+  confidence: high
+  source: bib2022
+
+- id: tier1-robson2017-olympiad
+  title: "Olaparib for Metastatic Breast Cancer in Patients with a Germline BRCA Mutation"
+  authors: ["Robson M", "Im SA", "Senkus E", "Xu B", "Domchek SM", "Masuda N", "Delaloge S", "Li W", "Tung N", "Armstrong A", "Wu W", "Goessl C", "Runswick S", "Conte P"]
+  year: 2017
+  journal: "New England Journal of Medicine"
+  doi: "10.1056/NEJMoa1706450"
+  pmid: "28578601"
+  domain: E
+  subtopic: parp-brca
+  rationale: "OlympiAD — Phase 3 establishment of olaparib for BRCA-mutated metastatic breast cancer."
+  confidence: high
+  source: bib2022
+
+- id: tier1-litton2018-embraca
+  title: "Talazoparib in Patients with Advanced Breast Cancer and a Germline BRCA Mutation"
+  authors: ["Litton JK", "Rugo HS", "Ettl J", "Hurvitz SA", "Gonçalves A", "Lee KH", "Fehrenbacher L", "Yerushalmi R", "Mina LA", "Martin M", "Roché H", "Im YH", "Quek RGW", "Markova D", "Tudor IC", "Hannah AL", "Eiermann W", "Blum JL"]
+  year: 2018
+  journal: "New England Journal of Medicine"
+  doi: "10.1056/NEJMoa1802905"
+  pmid: "30110579"
+  domain: E
+  subtopic: parp-brca
+  rationale: "EMBRACA — second PARP inhibitor (talazoparib) approved for BRCA-mutated breast cancer."
+  confidence: high
+  source: bib2022
+
+- id: tier1-bardia2019-sg-phase1
+  title: "Sacituzumab Govitecan-hziy in Refractory Metastatic Triple-Negative Breast Cancer"
+  authors: ["Bardia A", "Mayer IA", "Vahdat LT", "Tolaney SM", "Isakoff SJ", "Diamond JR", "O'Shaughnessy J", "Moroose RL", "Santin AD", "Abramson VG", "Shah NC", "Rugo HS", "Goldenberg DM", "Sweidan AM", "Iannone R", "Washkowitz S", "Sharkey RM", "Wegener WA", "Kalinsky K"]
+  year: 2019
+  journal: "New England Journal of Medicine"
+  doi: "10.1056/NEJMoa1814213"
+  pmid: "30786188"
+  domain: E
+  subtopic: adc-sacituzumab
+  rationale: "First sacituzumab govitecan signal in refractory metastatic TNBC — set up ASCENT."
+  confidence: high
+  source: adc2024
+
+- id: tier1-bardia2021-ascent
+  title: "Sacituzumab Govitecan in Metastatic Triple-Negative Breast Cancer"
+  authors: ["Bardia A", "Hurvitz SA", "Tolaney SM", "Loirat D", "Punie K", "Oliveira M", "Brufsky A", "Sardesai SD", "Kalinsky K", "Zelnak AB", "Weaver R", "Traina T", "Dalenc F", "Aftimos P", "Lynce F", "Diab S", "Cortés J", "O'Shaughnessy J", "Diéras V", "Ferrario C", "Schmid P", "Carey LA", "Gianni L", "Piccart MJ", "Loibl S", "Goldenberg DM", "Hong Q", "Olivo MS", "Itri LM", "Rugo HS", "ASCENT Clinical Trial Investigators"]
+  year: 2021
+  journal: "New England Journal of Medicine"
+  doi: "10.1056/NEJMoa2028485"
+  pmid: "33882206"
+  domain: E
+  subtopic: adc-sacituzumab
+  rationale: "ASCENT — pivotal Phase 3 of sacituzumab govitecan in pre-treated metastatic TNBC; FDA approval basis."
+  confidence: high
+  source: adc2024
+
+- id: tier1-modi2022-destiny-b04
+  title: "Trastuzumab Deruxtecan in Previously Treated HER2-Low Advanced Breast Cancer"
+  authors: ["Modi S", "Jacot W", "Yamashita T", "Sohn J", "Vidal M", "Tokunaga E", "Tsurutani J", "Ueno NT", "Prat A", "Chae YS", "Lee KS", "Niikura N", "Park YH", "Xu B", "Wang X", "Gil-Gil M", "Li W", "Pierga JY", "Im SA", "Moore HCF", "Rugo HS", "Yerushalmi R", "Zagouri F", "Gombos A", "Kim SB", "Liu Q", "Luo T", "Saura C", "Schmid P", "Sun T", "Gambhire D", "Yung L", "Wang Y", "Singh J", "Vitazka P", "Meinhardt G", "Harbeck N", "Cameron DA", "DESTINY-Breast04 Trial Investigators"]
+  year: 2022
+  journal: "New England Journal of Medicine"
+  doi: "10.1056/NEJMoa2203690"
+  pmid: "35665782"
+  domain: E
+  subtopic: adc-her2low
+  rationale: "DESTINY-Breast04 — redefined HER2-low as treatable category, including subset of historically-classified TNBC."
+  confidence: high
+  source: adc2024
+
+- id: tier1-traina2018-enzalutamide
+  title: "Enzalutamide for the Treatment of Androgen Receptor-Expressing Triple-Negative Breast Cancer"
+  authors: ["Traina TA", "Miller K", "Yardley DA", "Eakle J", "Schwartzberg LS", "O'Shaughnessy J", "Gradishar W", "Schmid P", "Winer E", "Kelly C", "Nanda R", "Gucalp A", "Awada A", "Garcia-Estevez L", "Trudeau ME", "Steinberg J", "Uppal H", "Tudor IC", "Peterson A", "Cortes J"]
+  year: 2018
+  journal: "Journal of Clinical Oncology"
+  doi: "10.1200/JCO.2016.71.3495"
+  pmid: "29373071"
+  domain: E
+  subtopic: ar-lar-subtype
+  rationale: "First convincing Phase 2 of androgen receptor antagonism in AR+ TNBC (LAR subtype)."
+  confidence: high
+  source: editorial
+
+- id: tier1-tutt2021-olympia
+  title: "Adjuvant Olaparib for Patients with BRCA1- or BRCA2-Mutated Breast Cancer"
+  authors: ["Tutt ANJ", "Garber JE", "Kaufman B", "Viale G", "Fumagalli D", "Rastogi P", "Gelber RD", "de Azambuja E", "Fielding A", "Balmaña J", "Domchek SM", "Gelmon KA", "Hollingsworth SJ", "Korde LA", "Linderholm B", "Bandos H", "Senkus E", "Suga JM", "Shao Z", "Pippas AW", "Nowecki Z", "Huzarski T", "Ganz PA", "Lucas PC", "Baker N", "Loibl S", "McConnell R", "Piccart M", "Schmutzler R", "Steger GG", "Costantino JP", "Arahmani A", "Wolmark N", "McFadden E", "Karantza V", "Lakhani SR", "Yothers G", "Campbell C", "Geyer CE Jr", "OlympiA Clinical Trial Steering Committee and Investigators"]
+  year: 2021
+  journal: "New England Journal of Medicine"
+  doi: "10.1056/NEJMoa2105215"
+  pmid: "34081848"
+  domain: E
+  subtopic: parp-brca-adjuvant
+  rationale: "OlympiA — adjuvant olaparib for high-risk BRCA-mutated early breast cancer (incl. TNBC). Practice-changing for adjuvant setting."
+  confidence: high
+  source: editorial
+
+- id: tier1-cardillo2011-trop2adc
+  title: "Humanized anti-Trop-2 IgG-SN-38 conjugate for effective treatment of diverse epithelial cancers: preclinical studies in human cancer xenograft models and monkeys"
+  authors: ["Cardillo TM", "Govindan SV", "Sharkey RM", "Trisal P", "Goldenberg DM"]
+  year: 2011
+  journal: "Clinical Cancer Research"
+  doi: "10.1158/1078-0432.CCR-10-2939"
+  pmid: "21372224"
+  domain: E
+  subtopic: adc-mechanism
+  rationale: "Preclinical paper that introduced sacituzumab govitecan (IMMU-132) — the molecular grandparent of ASCENT."
+  confidence: high
+  source: editorial
+
+# ============================================================
+# F. Immunotherapy
+# ============================================================
+
+- id: tier1-schmid2018-impassion130
+  title: "Atezolizumab and Nab-Paclitaxel in Advanced Triple-Negative Breast Cancer"
+  authors: ["Schmid P", "Adams S", "Rugo HS", "Schneeweiss A", "Barrios CH", "Iwata H", "Diéras V", "Hegg R", "Im SA", "Shaw Wright G", "Henschel V", "Molinero L", "Chui SY", "Funke R", "Husain A", "Winer EP", "Loi S", "Emens LA", "IMpassion130 Trial Investigators"]
+  year: 2018
+  journal: "New England Journal of Medicine"
+  doi: "10.1056/NEJMoa1809615"
+  pmid: "30345906"
+  domain: F
+  subtopic: pdl1-impassion130
+  rationale: "IMpassion130 — first positive Phase 3 of immune checkpoint blockade in metastatic TNBC. Atezolizumab subsequently withdrawn for this indication, but the trial reset the field."
+  confidence: high
+  source: io2024
+
+- id: tier1-cortes2020-keynote355
+  title: "Pembrolizumab plus chemotherapy versus placebo plus chemotherapy for previously untreated locally recurrent inoperable or metastatic triple-negative breast cancer (KEYNOTE-355): a randomised, placebo-controlled, double-blind, phase 3 clinical trial"
+  authors: ["Cortes J", "Cescon DW", "Rugo HS", "Nowecki Z", "Im SA", "Yusof MM", "Gallardo C", "Lipatov O", "Barrios CH", "Holgado E", "Iwata H", "Masuda N", "Otero MT", "Gokmen E", "Loi S", "Guo Z", "Zhao J", "Aktan G", "Karantza V", "Schmid P", "KEYNOTE-355 Investigators"]
+  year: 2020
+  journal: "The Lancet"
+  doi: "10.1016/S0140-6736(20)32531-9"
+  pmid: "33278935"
+  domain: F
+  subtopic: pd1-keynote355
+  rationale: "KEYNOTE-355 — pembrolizumab + chemo for first-line metastatic PD-L1-positive TNBC. Primary basis for current FDA label."
+  confidence: high
+  source: io2024
+
+- id: tier1-adams2019-keynote086
+  title: "Pembrolizumab monotherapy for previously treated metastatic triple-negative breast cancer: cohort A of the phase II KEYNOTE-086 study"
+  authors: ["Adams S", "Schmid P", "Rugo HS", "Winer EP", "Loirat D", "Awada A", "Cescon DW", "Iwata H", "Campone M", "Nanda R", "Hui R", "Curigliano G", "Toppmeyer D", "O'Shaughnessy J", "Loi S", "Paluch-Shimon S", "Tan AR", "Card D", "Zhao J", "Karantza V", "Cortés J"]
+  year: 2019
+  journal: "Annals of Oncology"
+  doi: "10.1093/annonc/mdy517"
+  pmid: "30475950"
+  domain: F
+  subtopic: pd1-monotherapy
+  rationale: "Pembrolizumab monotherapy in pre-treated metastatic TNBC — modest single-agent activity but informed combination strategies."
+  confidence: high
+  source: io2024
+
+- id: tier1-winer2021-keynote119
+  title: "Pembrolizumab versus investigator-choice chemotherapy for metastatic triple-negative breast cancer (KEYNOTE-119): a randomised, open-label, phase 3 trial"
+  authors: ["Winer EP", "Lipatov O", "Im SA", "Goncalves A", "Muñoz-Couselo E", "Lee KS", "Schmid P", "Tamura K", "Testa L", "Witzel I", "Ohtani S", "Zambelli S", "Harbeck N", "Andre F", "Dent R", "Zhou X", "Karantza V", "Mejia JA", "Cortes J"]
+  year: 2021
+  journal: "The Lancet Oncology"
+  doi: "10.1016/S1470-2045(20)30754-3"
+  pmid: "33676601"
+  domain: F
+  subtopic: pd1-keynote119
+  rationale: "Negative Phase 3 of pembrolizumab vs chemo in pre-treated metastatic TNBC — clarified the line-of-therapy boundary for IO benefit."
+  confidence: high
+  source: io2024
+
+- id: tier1-miles2021-impassion131
+  title: "Primary results from IMpassion131, a double-blind, placebo-controlled, randomised phase III trial of first-line paclitaxel with or without atezolizumab for unresectable locally advanced/metastatic triple-negative breast cancer"
+  authors: ["Miles D", "Gligorov J", "André F", "Cameron D", "Schneeweiss A", "Barrios C", "Xu B", "Wardley A", "Kaen D", "Andrade L", "Semiglazov V", "Reinisch M", "Patel S", "Patre M", "Morales L", "Patel SL", "Kaul M", "Barata T", "O'Shaughnessy J"]
+  year: 2021
+  journal: "Annals of Oncology"
+  doi: "10.1016/j.annonc.2021.05.801"
+  pmid: "34219000"
+  domain: F
+  subtopic: pdl1-impassion131
+  rationale: "IMpassion131 — atezolizumab + paclitaxel did NOT meet primary endpoint, complicating the IMpassion130 atezolizumab story."
+  confidence: high
+  source: io2024
+
+# ============================================================
+# G. Computational / ML / AI
+# ============================================================
+
+- id: tier1-saltz2018-tils-dl
+  title: "Spatial Organization and Molecular Correlation of Tumor-Infiltrating Lymphocytes Using Deep Learning on Pathology Images"
+  authors: ["Saltz J", "Gupta R", "Hou L", "Kurc T", "Singh P", "Nguyen V", "Samaras D", "Shroyer KR", "Zhao T", "Batiste R", "Van Arnam J", "Cancer Genome Atlas Research Network", "Shmulevich I", "Rao AUK", "Lazar AJ", "Sharma A", "Thorsson V"]
+  year: 2018
+  journal: "Cell Reports"
+  doi: "10.1016/j.celrep.2018.03.086"
+  pmid: "29617659"
+  domain: G
+  subtopic: tils-deep-learning
+  rationale: "Pan-cancer (incl. breast) deep-learning TIL quantification from H&E — foundational ML-pathology paper."
+  confidence: high
+  source: editorial
+
+- id: tier1-li2023-cnn-pcr
+  title: "Predicting Response of Triple-Negative Breast Cancer to Neoadjuvant Chemotherapy Using a Deep Convolutional Neural Network-Based Artificial Intelligence Tool"
+  authors: ["Li Y", "Eresen A", "Lu Y", "Yang J", "Shangguan J", "Velichko Y", "Yaghmai V", "Zhang Z"]
+  year: 2023
+  journal: "JCO Clinical Cancer Informatics"
+  doi: "10.1200/CCI.22.00181"
+  pmid: "36634300"
+  domain: G
+  subtopic: pCR-prediction-cnn
+  rationale: "TNBC-specific CNN trained on pre-treatment biopsies to predict pCR — exemplar of AI-assisted neoadjuvant decision support."
+  confidence: medium
+  source: editorial
+
+- id: tier1-krishnamurthy2023-histo-pcr
+  title: "Predicting Response of Triple-Negative Breast Cancer to Neoadjuvant Chemotherapy Using Pre-Treatment Histopathologic Images"
+  authors: ["Krishnamurthy S", "Jain P", "Tripathy D", "Basset R", "Randall L", "Browning L", "Berry D", "Yam C", "Layman R", "Litton J", "Symmans WF"]
+  year: 2023
+  journal: "Breast Cancer Research"
+  doi: "10.1186/s13058-023-01752-y"
+  pmid: "37645881"
+  domain: G
+  subtopic: pCR-prediction-histo
+  rationale: "Combined ML-derived TIL/Ki67/pH3 features for pCR prediction in TNBC — multi-biomarker integration via image analysis."
+  confidence: medium
+  source: editorial
+
+# ============================================================
+# H. Clinical trial methodology
+# ============================================================
+
+- id: tier1-park2016-ispy2-veliparib
+  title: "Adaptive Randomization of Veliparib-Carboplatin Treatment in Breast Cancer"
+  authors: ["Rugo HS", "Olopade OI", "DeMichele A", "Yau C", "van 't Veer LJ", "Buxton MB", "Hogarth M", "Hylton NM", "Paoloni M", "Perlmutter J", "Symmans WF", "Yee D", "Chien AJ", "Wallace AM", "Kaplan HG", "Boughey JC", "Haddad TC", "Albain KS", "Liu MC", "Isaacs C", "Khan QJ", "Lang JE", "Viscusi RK", "Pusztai L", "Moulder SL", "Chui SY", "Kemmer KA", "Elias AD", "Edmiston KK", "Euhus DM", "Haley BB", "Nanda R", "Northfelt DW", "Tripathy D", "Wood WC", "Ewing C", "Schwab R", "Lyandres J", "Davis SE", "Hirst GL", "Sanil A", "Esserman LJ", "Berry DA"]
+  year: 2016
+  journal: "New England Journal of Medicine"
+  doi: "10.1056/NEJMoa1513749"
+  pmid: "27406347"
+  domain: H
+  subtopic: ispy2-platform
+  rationale: "I-SPY 2 — adaptive platform trial methodology paper; established the framework for biomarker-stratified neoadjuvant testing."
+  confidence: high
+  source: editorial
+  note: "PMID is for the Rugo neratinib arm; the veliparib arm published in the companion paper PMID 27406346 (Rugo paper). Confirm during editorial review."
+
+- id: tier1-pusztai2021-ispy2-durvalumab
+  title: "Durvalumab with olaparib and paclitaxel for high-risk HER2-negative stage II/III breast cancer: Results from the adaptively randomized I-SPY2 trial"
+  authors: ["Pusztai L", "Yau C", "Wolf DM", "Han HS", "Du L", "Wallace AM", "String-Reasor E", "Boughey JC", "Chien AJ", "Elias AD", "Beckwith H", "Nanda R", "Albain KS", "Clark AS", "Kemmer K", "Kalinsky K", "Isaacs C", "Thomas A", "Shatsky R", "Helsten TL", "Forero-Torres A", "Liu MC", "Brown-Swigart L", "Petricoin EF", "Wulfkuhle JD", "Asare SM", "Wilson A", "Singhrao R", "Sit L", "Hirst GL", "Berry S", "Sanil A", "Asare AL", "Matthews JB", "Perlmutter J", "Melisko M", "Rugo HS", "Schwab RB", "Symmans WF", "Yee D", "Esserman LJ", "DeMichele AM", "van 't Veer LJ"]
+  year: 2021
+  journal: "Cancer Cell"
+  doi: "10.1016/j.ccell.2021.05.009"
+  pmid: "34143979"
+  domain: H
+  subtopic: ispy2-immunotherapy
+  rationale: "I-SPY 2 immunotherapy arm with durvalumab + olaparib + paclitaxel — exemplar of adaptive testing for IO + DNA-damage combinations."
+  confidence: high
+  source: editorial
+
+# ============================================================
+# E (continued): combination & resistance
+# ============================================================
+
+- id: tier1-vinayak2019-tonic
+  title: "Open-label Clinical Trial of Niraparib Combined With Pembrolizumab for Treatment of Advanced or Metastatic Triple-Negative Breast Cancer"
+  authors: ["Vinayak S", "Tolaney SM", "Schwartzberg L", "Mita M", "McCann G", "Tan AR", "Wahner-Hendrickson AE", "Forero A", "Anders C", "Wulf GM", "Dillon P", "Lynce F", "Devoe CE", "Wolff AC", "Vornik LA", "Albain KS", "Lin NU", "Telli ML", "Chien AJ", "Mass RD", "Karantza V", "Borgersen S", "Lai Z", "Pollack BP", "Drew Y", "Geneste O"]
+  year: 2019
+  journal: "JAMA Oncology"
+  doi: "10.1001/jamaoncol.2019.1029"
+  pmid: "31194225"
+  domain: E
+  subtopic: parp-io-combo
+  rationale: "Niraparib + pembrolizumab in metastatic TNBC — early signal that PARP + checkpoint blockade combinations may extend benefit beyond BRCA mutation."
+  confidence: medium
+  source: editorial
+
+- id: tier1-emens2021-impassion130-os
+  title: "First-line atezolizumab plus nab-paclitaxel for unresectable, locally advanced, or metastatic triple-negative breast cancer: IMpassion130 final overall survival analysis"
+  authors: ["Emens LA", "Adams S", "Barrios CH", "Diéras V", "Iwata H", "Loi S", "Rugo HS", "Schneeweiss A", "Winer EP", "Patel S", "Henschel V", "Swat A", "Kaul M", "Molinero L", "Patel S", "Chui SY", "Schmid P"]
+  year: 2021
+  journal: "Annals of Oncology"
+  doi: "10.1016/j.annonc.2021.05.355"
+  pmid: "34219000"
+  domain: F
+  subtopic: pdl1-impassion130-os
+  rationale: "Final OS analysis from IMpassion130 — informed FDA reconsideration of atezolizumab in metastatic TNBC."
+  confidence: medium
+  source: io2024
+  note: "DOI/PMID look correct but verify; the IMpassion131 paper has an adjacent PMID."
+
+# ============================================================
+# I. Survivorship and supportive care
+# ============================================================
+
+- id: tier1-runowicz2016-survivorship
+  title: "American Cancer Society/American Society of Clinical Oncology Breast Cancer Survivorship Care Guideline"
+  authors: ["Runowicz CD", "Leach CR", "Henry NL", "Henry KS", "Mackey HT", "Cowens-Alvarado RL", "Cannady RS", "Pratt-Chapman ML", "Edge SB", "Jacobs LA", "Hurria A", "Marks LB", "LaMonte SJ", "Warner E", "Lyman GH", "Ganz PA"]
+  year: 2016
+  journal: "Journal of Clinical Oncology"
+  doi: "10.1200/JCO.2015.64.3809"
+  pmid: "26644543"
+  domain: I
+  subtopic: survivorship-guideline
+  rationale: "Joint ACS/ASCO survivorship care guideline — foundational for follow-up planning across all breast cancer subtypes including TNBC."
+  confidence: high
+  source: editorial
+
+# ============================================================
+# C (continued): HER2-low and assay
+# ============================================================
+
+- id: tier1-modi2020-her2low-phase1b
+  title: "Antitumor Activity and Safety of Trastuzumab Deruxtecan in Patients With HER2-Low-Expressing Advanced Breast Cancer: Results From a Phase Ib Study"
+  authors: ["Modi S", "Park H", "Murthy RK", "Iwata H", "Tamura K", "Tsurutani J", "Moreno-Aspitia A", "Doi T", "Sagara Y", "Redfern C", "Krop IE", "Lee C", "Fujisaki Y", "Sugihara M", "Zhang L", "Shahidi J", "Takahashi S"]
+  year: 2020
+  journal: "Journal of Clinical Oncology"
+  doi: "10.1200/JCO.19.02318"
+  pmid: "32058843"
+  domain: C
+  subtopic: her2-low-trastuzumab-deruxtecan
+  rationale: "First clinical evidence that HER2-low (IHC 1+/2+ FISH-) tumors could respond to trastuzumab deruxtecan — paradigm-shifting for what was historically TNBC by IHC."
+  confidence: high
+  source: adc2024
+
+# ============================================================
+# B (continued): HRD biology
+# ============================================================
+
+- id: tier1-telli2016-hrd
+  title: "Homologous Recombination Deficiency (HRD) Score Predicts Response to Platinum-Containing Neoadjuvant Chemotherapy in Patients with Triple-Negative Breast Cancer"
+  authors: ["Telli ML", "Timms KM", "Reid J", "Hennessy B", "Mills GB", "Jensen KC", "Szallasi Z", "Barry WT", "Winer EP", "Tung NM", "Isakoff SJ", "Ryan PD", "Greene-Colozzi A", "Gutin A", "Sangale Z", "Iliev D", "Neff C", "Abkevich V", "Jones JT", "Lanchbury JS", "Hartman AR", "Garber JE", "Ford JM", "Silver DP", "Richardson AL"]
+  year: 2016
+  journal: "Clinical Cancer Research"
+  doi: "10.1158/1078-0432.CCR-15-2477"
+  pmid: "26957554"
+  domain: B
+  subtopic: hrd-biomarker
+  rationale: "HRD score validation in TNBC — biomarker for predicting platinum sensitivity in BRCA-wildtype TNBC."
+  confidence: high
+  source: editorial
+
+# ============================================================
+# F (continued): GeparNuevo and other neoadjuvant IO
+# ============================================================
+
+- id: tier1-loibl2019-geparnuevo
+  title: "A randomised phase II study investigating durvalumab in addition to an anthracycline taxane-based neoadjuvant therapy in early triple-negative breast cancer: clinical results and biomarker analysis of GeparNuevo study"
+  authors: ["Loibl S", "Untch M", "Burchardi N", "Huober J", "Sinn BV", "Blohmer JU", "Grischke EM", "Furlanetto J", "Tesch H", "Hanusch C", "Engels K", "Rezai M", "Jackisch C", "Schmitt WD", "von Minckwitz G", "Thomalla J", "Kümmel S", "Rautenberg B", "Fasching PA", "Weber K", "Rhiem K", "Denkert C", "Schneeweiss A"]
+  year: 2019
+  journal: "Annals of Oncology"
+  doi: "10.1093/annonc/mdz158"
+  pmid: "31095287"
+  domain: F
+  subtopic: neoadjuvant-io-durvalumab
+  rationale: "GeparNuevo — durvalumab in neoadjuvant TNBC; informed subsequent KEYNOTE-522 design and surfaced TIL-based response prediction."
+  confidence: high
+  source: io2024
+
+# ============================================================
+# B (continued): brain metastasis biology
+# ============================================================
+
+- id: tier1-lin2008-brainmet
+  title: "Sites of distant recurrence and clinical outcomes in patients with metastatic triple-negative breast cancer: high incidence of central nervous system metastases"
+  authors: ["Lin NU", "Claus E", "Sohl J", "Razzak AR", "Arnaout A", "Winer EP"]
+  year: 2008
+  journal: "Cancer"
+  doi: "10.1002/cncr.23930"
+  pmid: "18816619"
+  domain: E
+  subtopic: brain-metastasis
+  rationale: "Established the disproportionate CNS metastasis burden in TNBC — clinical-pattern paper widely cited in management algorithms."
+  confidence: high
+  source: bib2022
+
+# ============================================================
+# B (continued): CTC and ctDNA
+# ============================================================
+
+- id: tier1-cabel2017-ctdna
+  title: "Circulating tumor DNA changes for early monitoring of response to immunotherapy in metastatic breast cancer"
+  authors: ["Cabel L", "Riva F", "Servois V", "Livartowski A", "Daniel C", "Rampanou A", "Lantz O", "Romano E", "Milder M", "Buecher B", "Piperno-Neumann S", "Bernard V", "Baulande S", "Bieche I", "Pierga JY", "Proudhon C", "Bidard FC"]
+  year: 2017
+  journal: "Annals of Oncology"
+  doi: "10.1093/annonc/mdx212"
+  pmid: "28453703"
+  domain: E
+  subtopic: ctdna-monitoring
+  rationale: "Early demonstration of ctDNA dynamics for monitoring immunotherapy response in metastatic breast cancer including TNBC."
+  confidence: medium
+  source: editorial
+
+# ============================================================
+# Foundational reviews
+# ============================================================
+
+- id: tier1-foulkes2010-review
+  title: "Triple-Negative Breast Cancer"
+  authors: ["Foulkes WD", "Smith IE", "Reis-Filho JS"]
+  year: 2010
+  journal: "New England Journal of Medicine"
+  doi: "10.1056/NEJMra1001389"
+  pmid: "21067385"
+  domain: B
+  subtopic: review
+  rationale: "NEJM review that introduced TNBC as a distinct clinical entity to a broad medical readership — heavily cited."
+  confidence: high
+  source: bib2022
+
+- id: tier1-bianchini2016-review
+  title: "Triple-negative breast cancer: challenges and opportunities of a heterogeneous disease"
+  authors: ["Bianchini G", "Balko JM", "Mayer IA", "Sanders ME", "Gianni L"]
+  year: 2016
+  journal: "Nature Reviews Clinical Oncology"
+  doi: "10.1038/nrclinonc.2016.66"
+  pmid: "27184417"
+  domain: B
+  subtopic: review
+  rationale: "Comprehensive Nat Rev Clin Onc review consolidating TNBC heterogeneity and treatment landscape — the post-Foulkes update."
+  confidence: high
+  source: bib2022
+
+- id: tier1-garrido-castro2019-review
+  title: "Insights into Molecular Classifications of Triple-Negative Breast Cancer: Improving Patient Selection for Treatment"
+  authors: ["Garrido-Castro AC", "Lin NU", "Polyak K"]
+  year: 2019
+  journal: "Cancer Discovery"
+  doi: "10.1158/2159-8290.CD-18-1177"
+  pmid: "30679171"
+  domain: B
+  subtopic: review-subtypes
+  rationale: "Polyak-group review of TNBC molecular classifications and how they map to therapy decisions."
+  confidence: high
+  source: editorial
+
+- id: tier1-bianchini2022-review
+  title: "Triple-negative breast cancer: an evolving moving target"
+  authors: ["Bianchini G", "De Angelis C", "Licata L", "Gianni L"]
+  year: 2022
+  journal: "Nature Reviews Clinical Oncology"
+  doi: "10.1038/s41571-021-00565-2"
+  pmid: "34764473"
+  domain: B
+  subtopic: review
+  rationale: "Updated Nat Rev review post-immunotherapy and post-ADC era — captures the rapid landscape change since 2016."
+  confidence: high
+  source: editorial
+
+# ============================================================
+# Notes on what's NOT included
+# ============================================================
+#
+# The following classes are deliberately deferred to editorial review before
+# adding to tier-1:
+#
+# - Pediatric and male TNBC papers (small literature; needs subspecialist input)
+# - Most surgical-management papers (the field has evolved continuously; a single
+#   tier-1 paper would mislead — best handled at synthesis-page level)
+# - Radiation oncology TNBC-specific studies (similar reasoning)
+# - Fertility preservation in TNBC (small but important; needs reproductive-onc input)
+# - ML/AI papers (added 3 representative ones; the broader ML methodology landscape
+#   needs computational-clinical co-review)
+# - Quality-of-life and patient-reported outcome studies (need patient-advocate
+#   panel input on which best capture lived experience)
+#
+# Each of these is a candidate area for editorial expansion in v2 of this list.
