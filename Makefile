@@ -1,9 +1,11 @@
 # TNBC Atlas — pipeline operations
 #
-# Convenience targets for the full pipeline. Assumes:
-#   - PostgreSQL 14+ accessible at $PGHOST / $PGUSER / $PGDATABASE
-#     (defaults: socket /tmp/pgsock, user postgres, db tnbc_atlas)
-#   - Python 3.10+ with deps from requirements.txt installed
+# Convenience targets for the full pipeline. Database connection is resolved
+# from these env vars, in priority order:
+#   1. DATABASE_URL              — full Postgres URI (Supabase production)
+#   2. PGHOST/PGUSER/PGDATABASE  — classic libpq variables
+#   3. /tmp/pgsock socket        — sandbox-pilot default
+# Python 3.10+ with deps from requirements.txt installed.
 #
 # Quick start (first time):
 #   make install      # installs Python deps
@@ -20,11 +22,13 @@
 #   make all
 
 PYTHON ?= python3
+
+# Sandbox-pilot defaults; production overrides via DATABASE_URL env var
 PGHOST ?= /tmp/pgsock
 PGUSER ?= postgres
 PGDATABASE ?= tnbc_atlas
 
-export PGHOST PGUSER PGDATABASE
+export PGHOST PGUSER PGDATABASE DATABASE_URL CONTACT_EMAIL
 
 .PHONY: help install db-init harvest harvest-pubmed harvest-europepmc harvest-openalex \
         dedup enrich enrich-crossref enrich-unpaywall sweep-retractions \
@@ -48,8 +52,17 @@ install:
 	$(PYTHON) -m pip install -r requirements.txt
 
 db-init:
-	psql -d $(PGDATABASE) -f sql/01_schema.sql
-	psql -d $(PGDATABASE) -f sql/02_enrichment_migration.sql
+	@if [ -n "$$DATABASE_URL" ]; then \
+		psql "$$DATABASE_URL" -f sql/01_schema.sql; \
+		psql "$$DATABASE_URL" -f sql/02_enrichment_migration.sql; \
+		psql "$$DATABASE_URL" -f sql/02b_quality_passes_migration.sql; \
+		psql "$$DATABASE_URL" -f sql/03_supabase_public_api.sql; \
+	else \
+		psql -d $(PGDATABASE) -f sql/01_schema.sql; \
+		psql -d $(PGDATABASE) -f sql/02_enrichment_migration.sql; \
+		psql -d $(PGDATABASE) -f sql/02b_quality_passes_migration.sql; \
+		psql -d $(PGDATABASE) -f sql/03_supabase_public_api.sql; \
+	fi
 
 harvest: harvest-pubmed harvest-europepmc harvest-openalex
 

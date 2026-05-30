@@ -1,0 +1,55 @@
+name: Weekly retraction sweep
+
+on:
+  schedule:
+    - cron: '0 12 * * 2'     # Tuesdays 12:00 UTC
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      CONTACT_EMAIL: ${{ secrets.CONTACT_EMAIL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - run: pip install -r requirements.txt
+
+      - name: Cross-reference against Retraction Watch
+        run: python scripts/retraction_sweep.py
+
+      - name: Archive retraction report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retracted-records-${{ github.run_id }}
+          path: reports/retracted.csv
+          retention-days: 365
+
+      # ──────────────────────────────────────────────────────────────
+      # If any records changed retraction_status this run, post a
+      # summary issue so the editorial team sees it on the repo's
+      # Issues tab without needing to read run logs.
+      # ──────────────────────────────────────────────────────────────
+      - name: Open issue if new retractions
+        if: success()
+        run: |
+          NEW_COUNT=$(awk -F',' 'NR>1 && $2=="retracted"' reports/retracted.csv | wc -l)
+          if [ "$NEW_COUNT" -gt 0 ]; then
+            echo "New retractions detected: $NEW_COUNT"
+            # gh CLI is pre-installed on ubuntu-latest runners
+            gh issue create \
+              --title "Retraction sweep: $NEW_COUNT records flagged on $(date -u +%Y-%m-%d)" \
+              --body "Weekly retraction sweep flagged $NEW_COUNT records. See workflow artifact for the full list and check whether any cited synthesis pages need revision." \
+              --label "retraction-review"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

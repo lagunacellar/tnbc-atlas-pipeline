@@ -18,11 +18,12 @@ The dedup ratio (~50%) holds across years; the canonical-record target is the ri
 
 ## Prerequisites
 
-- Production Postgres up and reachable (see `RUNBOOK-production-db.md`).
-- Schema applied (`sql/01_schema.sql`, `sql/02_enrichment_migration.sql`).
-- Harvest host with this repo checked out, dependencies installed (`make install`).
+- Production Supabase project up and reachable (see `RUNBOOK-production-db.md`).
+- Schema applied (`sql/01_schema.sql`, `sql/02_enrichment_migration.sql`, `sql/03_supabase_public_api.sql`).
+- `DATABASE_URL` env var set to the Supabase connection string (direct URI, not pooled — backfill is one long process, not many short ones).
+- Local machine or one-shot GitHub Actions runner with this repo checked out, dependencies installed (`make install`).
 - API contact email registered with all sources via the polite-pool `mailto` parameter — already set in `scripts/common.py`; no additional registration required for PubMed, Europe PMC, OpenAlex, Crossref, or Unpaywall at the free-tier rates we use.
-- Approximately 100 GB of free disk on the harvest host (raw snapshots are bulky; we don't compress them in flight).
+- Approximately 5–10 GB of free disk on the runner (raw snapshots accumulate during the backfill; on a GitHub Actions runner this is well within the ~14 GB default).
 
 ## Strategy
 
@@ -93,7 +94,10 @@ for year in $(seq 2024 -1 2005); do
 done
 ```
 
-Run in a `tmux` or `screen` session on the harvest host so a disconnected SSH session doesn't kill it. The harvesters are resumable, so a kill+restart picks up where it left off.
+**Two ways to run the loop:**
+
+- **From your laptop in `tmux`/`screen`** — the simplest. Open `tmux`, source `DATABASE_URL`, run the loop, detach, come back hours later. The harvesters are resumable; a kill+restart picks up where it left off.
+- **One-shot GitHub Actions workflow** — `.github/workflows/full-backfill.yml` (not on a schedule; trigger manually via `workflow_dispatch`). 6-hour timeout on the free plan covers ~12–15 years per run; for the full 1995→2024 range you may need to split into two manual runs (e.g., 2005–2024 first, then 1995–2004). The workflow uses the same scripts and the same `DATABASE_URL` secret as the weekly harvest workflow.
 
 ## Step 3 — Pre-2005 foundational seeding
 

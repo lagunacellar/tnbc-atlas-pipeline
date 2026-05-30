@@ -1,233 +1,197 @@
-# Runbook — Migrate from sandbox Postgres to managed Postgres
+# Runbook — Production database on Supabase
 
-This runbook describes the one-time migration from the local pilot Postgres (which dies between sessions) to a managed production Postgres that the harvest pipeline, the public API, and the website's library search will all point at.
+The pilot uses sandbox Postgres that dies between sessions. Production runs on Supabase: managed Postgres 16 with PostgREST automatically exposed, daily backups, point-in-time recovery, and a SQL editor for ad-hoc queries. No VM to maintain.
 
-## Choice of provider
+## Why Supabase
 
-The Phase 3 plan defaults to **Hetzner Cloud** running a single Postgres node. Alternatives that work equally well at this scale:
+Three short reasons:
 
-| Provider | Best for | Cost (May 2026, USD) | Notes |
-|---|---|---|---|
-| **Hetzner Cloud** (CCX13 + managed PG add-on) | EU-hosted, GDPR-favorable, predictable cost | ~€20/month | Manual provisioning; backups via Hetzner snapshots |
-| **Supabase** | Fastest to launch, includes PostgREST, RLS, auth (which we don't need) | $25/month Pro | Backups included; some lock-in around extensions |
-| **Neon** | Serverless, generous free tier | $0–$19/month | Branching is useful for dev/prod separation |
-| **AWS RDS Postgres** | If already on AWS | $20–$50/month depending on tier | More expensive at this scale, but worth it if other infra is in AWS |
+1. **No server to maintain.** Supabase manages OS patches, Postgres minor versions, backups, replication, and monitoring. The Foundation does not need a Linux engineer.
+2. **PostgREST included.** The public REST API at `api.tnbc.info` is generated automatically from the schema. No separate PostgREST process to host.
+3. **Extension coverage.** Supabase supports the Postgres extensions our pipeline needs: `pg_trgm` (fuzzy-title dedup), `uuid-ossp` (record_id generation), and JSONB / TEXT[] are first-class.
 
-This runbook uses **Hetzner Cloud** as the worked example; substitute provider-specific commands where noted.
+Pricing: free tier covers a database up to 500 MB and 2 GB egress, which is plenty for the pilot (the 14k-record corpus is ~30 MB). The $25/month Pro tier raises database size to 8 GB and gives daily backups with 7-day point-in-time recovery — that's what production will land on once we backfill to 25–30k records.
 
-## Prerequisites
+## Step 1 — Create the Supabase project
 
-- Provider account with billing enabled.
-- Public SSH key on file.
-- A DNS record under your control (e.g., `db.tnbc.info`) pointing at the future server, if you want a friendly hostname; otherwise the provider-assigned hostname is fine.
-- The local pilot codebase (this repo) checked out.
+In the Supabase dashboard at <https://supabase.com/dashboard>:
 
-## Step 1 — Provision the server
+1. Click **New project**.
+2. Organization: your organization.
+3. Project name: `tnbc-atlas`.
+4. Database password: generate a strong one (Supabase offers a generator); store it in your password manager. This becomes the `postgres` user password.
+5. Region: pick the one closest to your editorial team and your harvest scheduler (`us-east-1`, `eu-central-1`, etc.).
+6. Pricing plan: start on Free; upgrade to Pro before public launch.
 
-### Hetzner
+Wait ~2 minutes for the project to provision.
 
-```bash
-# Using the hcloud CLI; equivalent in the web console
-hcloud server create \
-  --name tnbc-atlas-db \
-  --type ccx13 \
-  --image ubuntu-22.04 \
-  --location fsn1 \
-  --ssh-key <your-key-name>
-```
+## Step 2 — Note the connection details
 
-Get the public IP from `hcloud server list`. Open SSH:
+From the project dashboard, **Settings → Database**:
 
-```bash
-ssh root@<public-ip>
-```
+- **Connection string (URI)**: `postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres`
+- **Connection pooling URI** (recommended for serverless): `postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres`
 
-### Supabase / Neon / RDS
+Use the pooled URI for GitHub Actions runs (they're short-lived and connection-establishment overhead matters). Use the direct URI for ad-hoc psql sessions from your laptop.
 
-Use the provider's project-creation flow. You'll receive a Postgres connection string of the form `postgres://user:pass@host:port/db`. Skip ahead to Step 3.
-
-## Step 2 — Install Postgres 16 on the server (Hetzner / self-managed)
-
-```bash
-# On the new server, as root
-apt update && apt -y upgrade
-apt -y install postgresql-16 postgresql-contrib-16
-
-# Enable and start
-systemctl enable postgresql
-systemctl start postgresql
-
-# Create the production database and a read-write app user
-sudo -u postgres psql <<SQL
-CREATE USER tnbc_app WITH PASSWORD '<strong-random-password>';
-CREATE DATABASE tnbc_atlas OWNER tnbc_app;
-\c tnbc_atlas
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-SQL
-
-# Allow remote connections (lock down by IP allowlist in pg_hba.conf;
-# require SSL for all client connections)
-# Edit /etc/postgresql/16/main/postgresql.conf:
-#   listen_addresses = '*'
-#   ssl = on
-# Edit /etc/postgresql/16/main/pg_hba.conf:
-#   hostssl tnbc_atlas tnbc_app  <harvest-host-ip>/32   scram-sha-256
-#   hostssl tnbc_atlas tnbc_app  <api-host-ip>/32       scram-sha-256
-systemctl reload postgresql
-```
+Store both in your password manager and as a GitHub Actions secret (see RUNBOOK-orchestration.md).
 
 ## Step 3 — Apply the schema
 
-From your local machine, with `psql` installed:
+From your laptop with `psql` installed (or via Supabase's SQL editor — paste the file contents in):
 
 ```bash
-export PGHOST=<production-host>
-export PGUSER=tnbc_app
-export PGDATABASE=tnbc_atlas
-# PGPASSWORD set from a password manager / environment variable; never commit it
+export DATABASE_URL="postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres"
 
-psql -f sql/01_schema.sql
-psql -f sql/02_enrichment_migration.sql
-
-# Verify
-psql -c "\dt"
-psql -c "\d bibliography_records"
+psql "$DATABASE_URL" -f sql/01_schema.sql
+psql "$DATABASE_URL" -f sql/02_enrichment_migration.sql
+psql "$DATABASE_URL" -f sql/03_supabase_public_api.sql
 ```
 
-Expected: 4 tables (`bibliography_records`, `raw_snapshots`, `harvest_runs`, `dedup_decisions`) plus the enrichment-migration columns added to `bibliography_records`.
+Verify in the Supabase dashboard **Table Editor** that you see four tables (`bibliography_records`, `raw_snapshots`, `harvest_runs`, `dedup_decisions`) plus the `public_bibliography` view.
 
-## Step 4 — Run a smoke harvest
+Extensions: `sql/01_schema.sql` enables `pg_trgm` and `uuid-ossp`. Both are pre-allowed on Supabase; no separate action required.
 
-Confirm the pipeline can write to the production DB before doing the full backfill.
+## Step 4 — Smoke harvest
+
+From your laptop, with the connection string in your environment:
 
 ```bash
-# In the project repo, set the DSN to point at production
-export PGHOST PGUSER PGDATABASE
-# Pick a small recent window to limit the smoke test
-python scripts/harvest_pubmed.py --start 2026-04-01 --end 2026-05-01 --max 200
+cd "/path/to/tnbc_atlas_pilot"
+export DATABASE_URL="postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres"
+
+# Tiny window so the smoke test finishes in seconds, not minutes
+python scripts/harvest_pubmed.py --start 2026-04-01 --end 2026-04-30 --max 100
 python scripts/dedup_and_load.py
 
-psql -c "SELECT COUNT(*) FROM bibliography_records;"
-# Should show ~200 rows
+psql "$DATABASE_URL" -c "SELECT COUNT(*) FROM bibliography_records;"
+# Should show ~100 rows
 ```
 
-If this fails, fix here before proceeding. Common causes:
-- `pg_hba.conf` rejects the client IP (add your IP to the allowlist)
-- SSL not enforced on the client side (add `?sslmode=require` to the DSN or `PGSSLMODE=require`)
-- Schema migration not applied (re-run Step 3)
+If this fails, fix here before scheduling anything. Common causes:
 
-## Step 5 — One-time data load from the pilot (optional)
+- **Connection refused / timeout**: Supabase projects on the free tier pause after a week of inactivity. Open the dashboard once to wake it; subsequent connections will work.
+- **SSL required**: Supabase requires SSL. Append `?sslmode=require` if your psycopg version doesn't default to it. (The current `common.py` handles this automatically; included for completeness.)
+- **Authentication failed**: Double-check the `postgres` password from Settings → Database.
 
-If you want to start production with the 14k pilot records instead of re-harvesting from scratch:
+## Step 5 — Backups
 
-```bash
-# From the local pilot environment, with both DBs accessible
-pg_dump --host=/tmp/pgsock --no-owner --no-privileges --data-only \
-        --table=bibliography_records \
-        tnbc_atlas > pilot_dump.sql
+Supabase Pro includes daily backups with 7-day retention and point-in-time recovery to any second in that window. Free tier has manual-only backups.
 
-# Apply to production
-psql -h <production-host> -U tnbc_app -d tnbc_atlas -f pilot_dump.sql
+To verify the backup configuration on Pro:
+
+1. **Database → Backups** in the dashboard.
+2. Confirm a backup from the last 24 hours is listed.
+3. Click **Restore** to see the restoration flow (don't actually restore — just confirm the option exists and is documented for the team).
+
+Optional extra: export a logical dump weekly to your own object storage as a defense-in-depth measure. A GitHub Actions workflow can do this:
+
+```yaml
+# .github/workflows/weekly-pg-dump.yml
+name: Weekly logical backup
+on:
+  schedule:
+    - cron: '0 3 * * 0'   # Sundays 03:00 UTC
+  workflow_dispatch:
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pg client
+        run: sudo apt-get install -y postgresql-client
+      - name: Dump
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+        run: |
+          TS=$(date -u +%Y%m%dT%H%M%SZ)
+          pg_dump --no-owner --no-privileges --clean --if-exists "$DATABASE_URL" \
+            | gzip > tnbc_atlas_${TS}.sql.gz
+      - name: Upload to R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+        run: |
+          aws --endpoint-url https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com \
+              s3 cp tnbc_atlas_*.sql.gz s3://tnbc-atlas-backups/
 ```
 
-This is a one-time bootstrap. After it, the production DB lives on its own; the local pilot DB is no longer the source of truth.
+## Step 6 — Backup-restore drill (quarterly)
 
-Alternative: skip this and let the full backfill (see `RUNBOOK-full-backfill.md`) populate production from scratch. The backfill takes longer but produces a more consistent result.
+Even with managed backups, you don't have a backup until you've restored from one. Quarterly:
 
-## Step 6 — Backups
+1. Spin up a temporary local Postgres in Docker:
+   ```bash
+   docker run -d --name tnbc-restore-test -e POSTGRES_PASSWORD=test -p 5433:5432 postgres:16
+   sleep 5
+   ```
+2. Download the most recent R2 backup (from Step 5's defense-in-depth dump) and restore:
+   ```bash
+   gunzip -c tnbc_atlas_<latest>.sql.gz | PGPASSWORD=test psql -h localhost -p 5433 -U postgres -d postgres
+   ```
+3. Verify:
+   ```bash
+   PGPASSWORD=test psql -h localhost -p 5433 -U postgres \
+     -c "SELECT COUNT(*), MAX(last_harvested_at) FROM bibliography_records;"
+   ```
+4. Tear down: `docker rm -f tnbc-restore-test`.
 
-### Hetzner / self-managed
+Record the result (row count, timestamp, any errors) in the operations log. If the drill fails, fix the backup process before declaring it operational.
 
-Daily `pg_dump` to a separate volume or object storage:
+## Step 7 — Secrets management
 
-```bash
-# /etc/cron.daily/backup-tnbc-atlas
-#!/bin/bash
-set -e
-TS=$(date -u +%Y%m%dT%H%M%SZ)
-pg_dump -U tnbc_app -d tnbc_atlas | gzip > /var/backups/tnbc_atlas_${TS}.sql.gz
-# Retain 30 days
-find /var/backups -name "tnbc_atlas_*.sql.gz" -mtime +30 -delete
-# Off-site replica: rsync to S3-compatible storage (Hetzner Storage Box, Backblaze B2)
-rsync -a /var/backups/ <remote>:/backups/tnbc-atlas/
-```
+The Supabase connection string is the single most sensitive secret in the pipeline. Store it in exactly three places:
 
-Make it executable: `chmod +x /etc/cron.daily/backup-tnbc-atlas`.
+1. Your password manager (1Password, Bitwarden, etc.).
+2. GitHub Actions secrets at the pipeline repo level: `Settings → Secrets and variables → Actions → SUPABASE_DATABASE_URL`.
+3. Cloudflare for the API frontend (see RUNBOOK-public-api.md): used only in Cloudflare Workers if you add a custom proxy layer, otherwise not needed.
 
-### Managed providers
+Never commit the connection string. The `.gitignore` excludes `.env` for local development; use that for laptop work.
 
-Supabase, Neon, and RDS all do daily backups automatically. Verify retention (30 days is the floor for this project) and that point-in-time recovery is enabled.
+Rotation: rotate the database password every 6 months or immediately on suspected compromise. Supabase dashboard → Settings → Database → Reset database password. Then update the secret in GitHub Actions and your password manager.
 
-## Step 7 — Backup-restore drill (quarterly)
+## Step 8 — Monitoring
 
-You don't have a backup until you've restored from one.
+Supabase provides built-in monitoring:
 
-```bash
-# Spin up a temporary Postgres (Docker is fine for a drill)
-docker run -d --name tnbc-restore-test \
-  -e POSTGRES_PASSWORD=test \
-  -p 5433:5432 postgres:16
+- **Database → Reports** in the dashboard shows query duration, connection count, CPU, memory, disk usage.
+- **Database → Logs** for SQL-level debugging.
+- **API → Logs** for PostgREST request logs.
 
-sleep 5
-gunzip -c /var/backups/tnbc_atlas_<latest>.sql.gz | \
-  PGPASSWORD=test psql -h localhost -p 5433 -U postgres -d postgres
+What to actively watch:
 
-# Verify
-PGPASSWORD=test psql -h localhost -p 5433 -U postgres -d postgres \
-  -c "SELECT COUNT(*), MAX(last_harvested_at) FROM bibliography_records;"
+- Disk usage > 80% → upgrade plan or archive old `raw_snapshots`.
+- Connection count approaching pool limit → confirm GitHub Actions workflows aren't running concurrently.
+- 5xx errors on the PostgREST API → check Supabase status page first.
 
-# Clean up
-docker rm -f tnbc-restore-test
-```
+Free tier monitoring is dashboard-only. For email/Slack alerts, enable Supabase notifications (Pro tier) or use an uptime monitor like UptimeRobot pointing at `https://api.tnbc.info/public_bibliography?limit=1`.
 
-Document the result (record count, timestamp, any errors) in the operations log.
+## Cutover from sandbox / pilot
 
-## Step 8 — Secrets management
+Once production Supabase is verified working with the smoke harvest:
 
-Production secrets (DB password, API keys for any future paid sources) must never be committed. Recommended setup:
-
-- Local development: `.env` file in the project root, listed in `.gitignore` (the existing `.gitignore` already excludes `.env`).
-- Production servers / CI: provider's secret manager (Hetzner doesn't have one; use HashiCorp Vault or 1Password Connect; Supabase/Neon/RDS have built-in secret stores).
-- Rotation cadence: app user password rotated every 6 months, or immediately on suspected compromise.
-
-## Step 9 — Monitoring
-
-Minimum monitoring stack:
-
-- **Disk usage** — alert at 80% full. Bibliography grows ~5 MB / 1,000 records.
-- **Connection count** — alert if approaching `max_connections` (default 100); the harvest pipeline should never need more than 10 concurrent.
-- **Query duration** — alert if any query exceeds 30 seconds; the existing queries are all simple and should be sub-second.
-- **Replication lag** (if you add a read replica later) — alert at >60 seconds.
-- **Backup status** — alert if a daily backup is missing or smaller than 80% of the previous day's.
-
-Tools: any of Grafana + Prometheus + postgres_exporter, Datadog, or the provider's built-in monitoring.
-
-## Step 10 — Cutover from local pilot to production
-
-Once production is verified working:
-
-1. Update the harvest scripts' DSN to point at production permanently (set `PGHOST` / `PGUSER` / `PGDATABASE` in the production environment; the scripts respect these).
-2. Update the website's bibliography refresh script to read from production (see `tnbc_info_site/` README for the slim-JSON build step).
-3. Decommission the local pilot DB (no migration needed; just stop relying on it).
-
-## Rollback plan
-
-If the migration goes wrong, the local pilot continues to work independently. Production is additive, not replacing. You can always re-export from the pilot's JSONL artifacts (`exports/bibliography.jsonl`) and re-import.
-
-If a production deploy corrupts the database, restore from the most recent backup (Step 7's drill validates this works).
+1. Update local development environment variable: `export DATABASE_URL="<supabase-uri>"` (in `.env` for convenience).
+2. Update GitHub Actions secret `SUPABASE_DATABASE_URL` to the production URI.
+3. Run the full backfill (see RUNBOOK-full-backfill.md) or load the pilot's existing JSONL exports:
+   ```bash
+   # Optional: bootstrap production with the pilot's 14k records
+   pg_dump --no-owner --no-privileges --data-only --table=bibliography_records \
+           "$PILOT_LOCAL_URL" > pilot_data.sql
+   psql "$DATABASE_URL" -f pilot_data.sql
+   ```
+4. Decommission the local pilot (no migration needed; pilot DB and exports remain on disk as a reference).
 
 ## Checklist
 
-- [ ] Provider account created, billing verified
-- [ ] Server provisioned (or managed instance created)
-- [ ] Postgres 16 installed with `pg_trgm` and `uuid-ossp` extensions
-- [ ] App user (`tnbc_app`) created with strong password
-- [ ] `pg_hba.conf` allows only specific client IPs over SSL
-- [ ] Schema files applied (`sql/01_schema.sql`, `sql/02_enrichment_migration.sql`)
-- [ ] Smoke harvest succeeds (200 records loaded)
-- [ ] Backup script installed in `/etc/cron.daily/`
-- [ ] Backup-restore drill completed; result documented
-- [ ] Secrets stored outside source control (not in any git-tracked file)
-- [ ] Monitoring configured with alerting destinations (email or Slack)
-- [ ] Methods page on the website updated to reflect production hosting
+- [ ] Supabase project created in the chosen region
+- [ ] Database password stored in password manager
+- [ ] Connection URIs (direct + pooled) noted in operations doc
+- [ ] Schema files applied (`01_schema.sql`, `02_enrichment_migration.sql`, `03_supabase_public_api.sql`)
+- [ ] Smoke harvest of 100 records succeeded
+- [ ] Pro tier upgrade completed (before public launch)
+- [ ] Defense-in-depth weekly dump workflow installed in GitHub Actions
+- [ ] R2 bucket for backups created and credentials in GitHub Actions secrets
+- [ ] First backup-restore drill completed and logged
+- [ ] Monitoring confirmed in Supabase dashboard
+- [ ] Connection string distributed via GitHub Actions secrets (not committed)

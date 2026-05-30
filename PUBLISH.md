@@ -12,9 +12,16 @@ PUBLISH.md            ← this file
 Makefile
 requirements.txt
 .gitignore
+.github/
+  workflows/
+    weekly-harvest.yml
+    weekly-retraction-sweep.yml
+    quarterly-tier-review.yml
 sql/
   01_schema.sql
   02_enrichment_migration.sql
+  02b_quality_passes_migration.sql
+  03_supabase_public_api.sql
 scripts/
   common.py
   harvest_pubmed.py
@@ -33,6 +40,12 @@ scripts/
 curation/
   README.md
   tier1_seed.yml
+docs/
+  RUNBOOK-production-db.md
+  RUNBOOK-orchestration.md
+  RUNBOOK-public-api.md
+  RUNBOOK-full-backfill.md
+  RUNBOOK-coverage-audit.md
 ```
 
 ## What does NOT get committed
@@ -61,12 +74,20 @@ These directories will be created on first run, but they should never be committ
    cd "AI ML Lab/tnbc_atlas_pilot"
    git init
    git add LICENSE README.md CONTRIBUTING.md PUBLISH.md Makefile requirements.txt .gitignore
-   git add sql/ scripts/ curation/
+   git add sql/ scripts/ curation/ docs/ .github/
    git commit -m "Initial public release of the TNBC Atlas pipeline"
    git remote add origin https://github.com/<org>/tnbc-atlas-pipeline.git
    git branch -M main
    git push -u origin main
    ```
+
+3. **Configure repository secrets** at GitHub → Settings → Secrets and variables → Actions:
+   - `SUPABASE_DATABASE_URL` — pooled URI from Supabase Settings → Database
+   - `CONTACT_EMAIL` — project contact email for upstream API polite-pool headers
+   - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY`, `R2_SECRET_KEY` — for nightly export uploads to Cloudflare R2
+
+4. **Trigger the first workflow manually**: Actions tab → Weekly harvest → Run workflow.
+   Confirms secrets and Supabase connectivity before any scheduled run fires.
 
 3. **Verify the `.gitignore` is working** &mdash; `git status` should show no untracked files in `snapshots/`, `exports/`, `reports/`, or `logs/`.
 

@@ -1,250 +1,206 @@
-# Runbook — Public REST API with PostgREST
+# Runbook — Public REST API via Supabase + Cloudflare DNS
 
-This runbook describes how to expose a read-only public REST API over the production bibliography database, with rate limiting and an OpenAPI spec.
-
-## Why PostgREST
-
-The Phase 3 plan §4 picks PostgREST as the API layer. It generates a REST API directly from the Postgres schema, with no hand-written endpoint code. For a read-mostly bibliography it gives us:
-
-- **Filter, select, order, paginate** for free, via querystring (`/records?year=eq.2024&select=title,doi&limit=100`).
-- **OpenAPI 3 spec** at `/` automatically, so client generators work without effort.
-- **Role-based access control** via PostgreSQL roles — we expose only the read-only role to the public.
-- **No code to write, audit, or maintain** beyond a single config file.
-
-The alternative is a hand-written FastAPI service, which is more flexible but several hundred lines of code that we then have to maintain. PostgREST is the right call until we need write endpoints or computed business logic.
+Supabase exposes PostgREST automatically from its managed Postgres. We configure a public read-only role and view inside Supabase, then point `api.tnbc.info` at the Supabase API URL via Cloudflare DNS proxy. There is no PostgREST process to host and no separate API server to maintain.
 
 ## Architecture
 
 ```
-              ┌────────────────────────────┐
-              │  api.tnbc.info             │
-              │  (Cloudflare proxy)        │
-              └────────────┬───────────────┘
-                           │   HTTPS, rate-limited
-                           ▼
-              ┌────────────────────────────┐
-              │  PostgREST                 │
-              │  (single process on        │
-              │   harvest host or its own  │
-              │   VM, behind Cloudflare)   │
-              └────────────┬───────────────┘
-                           │   read-only role
-                           ▼
-              ┌────────────────────────────┐
-              │  Production PostgreSQL     │
-              │  (Hetzner / Supabase /     │
-              │   Neon / RDS)              │
-              └────────────────────────────┘
+        ┌─────────────────────────────────────┐
+        │  api.tnbc.info                      │
+        │  (Cloudflare DNS + edge cache       │
+        │   + rate limit + WAF)               │
+        └─────────────────┬───────────────────┘
+                          │  CNAME proxied (orange cloud)
+                          ▼
+        ┌─────────────────────────────────────┐
+        │  <project-ref>.supabase.co          │
+        │  PostgREST auto-served by Supabase  │
+        └─────────────────┬───────────────────┘
+                          │ enforces SELECT on api_anon role
+                          ▼
+        ┌─────────────────────────────────────┐
+        │  Supabase Postgres                  │
+        │  public_bibliography view           │
+        └─────────────────────────────────────┘
 ```
 
-Cloudflare in front does TLS termination, DDoS protection, and rate limiting at the edge.
+Cloudflare gives us:
+- TLS termination at `api.tnbc.info` (Supabase's own URL is also TLS but the friendly hostname matters for permalink stability and DNS branding).
+- DDoS protection.
+- Edge cache (so the same query doesn't hit Supabase repeatedly).
+- Rate limiting at the IP level.
 
-## Step 1 — Create the read-only API role
+Supabase gives us:
+- Managed PostgREST, generated automatically from the schema.
+- Built-in OpenAPI spec at the project's API URL.
+- API key infrastructure (anon key, service-role key) if we want to require keys later.
 
-```sql
--- Run as superuser on the production DB
-CREATE ROLE api_anon NOLOGIN;
-GRANT USAGE ON SCHEMA public TO api_anon;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO api_anon;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO api_anon;
+## Step 1 — Apply the public API schema
 
--- Restrict to the tables intended for public exposure
-REVOKE SELECT ON harvest_runs FROM api_anon;
-REVOKE SELECT ON raw_snapshots FROM api_anon;
-REVOKE SELECT ON dedup_decisions FROM api_anon;
--- api_anon retains SELECT only on bibliography_records
-
--- Create the JWT-less authenticator role that PostgREST uses
-CREATE ROLE authenticator NOINHERIT LOGIN PASSWORD '<strong-random-password>';
-GRANT api_anon TO authenticator;
-```
-
-The public will hit the API as `api_anon`; the only data exposed is the canonical bibliography table.
-
-## Step 2 — Create a view to shape the public response
-
-The full `bibliography_records` table has internal columns (`source_provenance` JSONB with provider raw payloads) we don't want to expose verbatim. Create a public view:
-
-```sql
-CREATE OR REPLACE VIEW public_bibliography AS
-SELECT
-  record_id,
-  canonical_doi AS doi,
-  pmid,
-  pmcid,
-  openalex_id,
-  title,
-  abstract,
-  authors,
-  journal,
-  journal_issn,
-  publication_date,
-  publication_year,
-  publication_type,
-  crossref_type,
-  mesh_terms,
-  keywords,
-  language,
-  countries,
-  oa_status,
-  oa_url,
-  license,
-  citation_count,
-  references_count,
-  retraction_status,
-  retraction_notice_doi,
-  retracted_at,
-  topic_tags,
-  tier,
-  tnbc_relevance_decision,
-  first_seen_at,
-  last_harvested_at
-FROM bibliography_records;
-
-GRANT SELECT ON public_bibliography TO api_anon;
-```
-
-Now `api_anon` cannot see source_provenance JSONB, internal foreign keys, or any auxiliary tables.
-
-## Step 3 — Install PostgREST
+The view and role are defined in `sql/03_supabase_public_api.sql`. Apply it once during initial setup (already covered in `RUNBOOK-production-db.md` Step 3):
 
 ```bash
-# On the API host (could be the same as the DB host, or its own small VM)
-# Download from https://github.com/PostgREST/postgrest/releases
-curl -L https://github.com/PostgREST/postgrest/releases/download/v12.2.0/postgrest-v12.2.0-linux-static-x64.tar.xz \
-  | tar xJ -C /usr/local/bin
+psql "$DATABASE_URL" -f sql/03_supabase_public_api.sql
 ```
 
-## Step 4 — Configuration
+Verify in Supabase **Table Editor → Views**: you should see `public_bibliography`.
 
-`/etc/postgrest/tnbc-atlas.conf`:
+Verify in **Authentication → Roles**: `api_anon` role exists with `SELECT` on `public_bibliography` only.
 
-```conf
-db-uri = "postgres://authenticator:<password>@<db-host>/tnbc_atlas?sslmode=require"
-db-schema = "public"
-db-anon-role = "api_anon"
-db-pool = 10
-db-pool-timeout = 10
+## Step 2 — Test the Supabase-native URL
 
-server-host = "127.0.0.1"
-server-port = 3000
-
-# Limit response payload to prevent runaway queries
-db-max-rows = 1000
-
-# CORS — allow the website's own domain, plus anything else researchers might use
-server-cors-allowed-origins = "https://tnbc.info,https://*.tnbc.info"
-
-# Log slow queries
-log-level = "info"
-```
-
-Run as a systemd service:
-
-```ini
-# /etc/systemd/system/postgrest.service
-[Unit]
-Description=PostgREST for tnbc-atlas
-After=network.target
-
-[Service]
-Type=simple
-User=postgrest
-ExecStart=/usr/local/bin/postgrest /etc/postgrest/tnbc-atlas.conf
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable: `systemctl enable --now postgrest`.
-
-## Step 5 — Cloudflare front
-
-In the Cloudflare dashboard for `tnbc.info`:
-
-1. Add a DNS record: `api.tnbc.info` → A → `<api-host-ip>`. Proxy through Cloudflare (orange cloud).
-2. Origin rules: send requests to `api.tnbc.info` to `<api-host-ip>:3000`.
-3. **Cloudflare Workers or Rules** for rate limiting:
-   - Anonymous IP limit: 60 requests / minute per IP.
-   - Burst allowance: 10 requests / second short-burst.
-   - Response on limit: HTTP 429 with `Retry-After: 60`.
-4. **Cache rule**: cache GET responses for 5 minutes (bibliography updates weekly; staleness is acceptable). Pass-through on `?` querystring variations.
-5. **SSL/TLS**: Full (strict). Cloudflare-issued cert at the edge.
-
-## Step 6 — Verify
+Supabase exposes the REST API at `https://<project-ref>.supabase.co/rest/v1/`. Without a friendly hostname yet:
 
 ```bash
-# Basic count
-curl https://api.tnbc.info/public_bibliography?select=count
+# The anon JWT key is in Supabase: Settings → API → anon (public) key
+ANON_KEY="<paste-from-supabase-dashboard>"
 
-# Recent records
-curl 'https://api.tnbc.info/public_bibliography?publication_year=eq.2025&select=title,doi,citation_count&order=citation_count.desc&limit=10'
-
-# OpenAPI spec
-curl https://api.tnbc.info/ | jq .info
+curl "https://<project-ref>.supabase.co/rest/v1/public_bibliography?select=count" \
+  -H "apikey: ${ANON_KEY}" \
+  -H "Authorization: Bearer ${ANON_KEY}"
 ```
 
-Expected: JSON responses with the requested fields. The OpenAPI spec at `/` documents every column, every operator, and every endpoint automatically.
+Expected: a JSON response with the row count. If you get a 401, the anon key is wrong; if you get a 404, the view wasn't created.
 
-## Step 7 — Bulk-export endpoints (separate from the API)
+## Step 3 — Add the friendly hostname via Cloudflare
 
-For users who want the full corpus rather than paginated API calls, expose static dumps regenerated nightly:
+In the Cloudflare dashboard for the `tnbc.info` zone:
+
+1. **DNS → Add record**.
+2. Type: `CNAME`.
+3. Name: `api`.
+4. Target: `<project-ref>.supabase.co`.
+5. Proxy status: **Proxied** (orange cloud).
+6. TTL: Auto.
+
+After ~30 seconds DNS propagates. Test:
 
 ```bash
-# Cron job on the harvest host
-# /etc/cron.daily/refresh-bulk-exports
-#!/bin/bash
-set -e
-cd /opt/tnbc-atlas-pipeline
-python scripts/export_and_report.py
-rsync -a exports/bibliography.csv exports/bibliography.jsonl exports/bibliography.bib exports/bibliography.ris \
-  <cdn-host>:/var/www/tnbc-cdn/exports/
+curl "https://api.tnbc.info/rest/v1/public_bibliography?select=count" \
+  -H "apikey: ${ANON_KEY}"
 ```
 
-Surface these at `https://exports.tnbc.info/bibliography.csv` etc. Update the website's `/research/api/` page to list both the live API and the bulk exports.
+Same response as before, now via the friendly hostname.
 
-## Rate-limit and abuse-prevention policy
+## Step 4 — Cloudflare edge configuration
 
-- Anonymous (no key): 60 req/min / IP, 1,000 req/hour / IP.
-- Registered (post-launch, optional): higher limits with an API key sent via `X-API-Key` header.
-- Hard caps: `db-max-rows = 1000` in PostgREST prevents any single response from returning more than 1,000 rows. Pagination via `Range` header or `?limit=N&offset=M`.
+In **Rules → Configuration Rules** (or **Page Rules** on older accounts), add:
 
-## OpenAPI consumption
+### Caching
 
-Client libraries are auto-generatable from the live OpenAPI spec at `https://api.tnbc.info/`:
+- **If URL path contains** `/rest/v1/public_bibliography` **AND request method is** `GET`
+- **Then** set Edge Cache TTL to 5 minutes (300 seconds).
+- Bypass cache on querystring change is the default.
+
+Rationale: the bibliography updates weekly; serving the same query from edge cache for up to 5 minutes is harmless and dramatically reduces hits to Supabase.
+
+### Rate limiting
+
+In **Security → WAF → Rate limiting rules**:
+
+- **Match**: hostname equals `api.tnbc.info` AND path matches `/rest/v1/*`.
+- **Limit**: 60 requests per IP per minute, 1,000 requests per IP per hour.
+- **Action**: Block with HTTP 429 and `Retry-After: 60`.
+
+Bumps the limits as needed for known good consumers (the website's own JS issues at most ~10 requests per page load; well below the limit).
+
+### Hide the anon key (optional, recommended)
+
+The Supabase anon key is intended to be public-visible, but exposing it at all means a malicious user could send unlimited queries from anywhere. To enforce that all access goes through Cloudflare (and is thus subject to rate limiting):
+
+1. In Supabase **Settings → API**, you can't disable the anon key entirely, but you can rotate it.
+2. Set up a small Cloudflare Worker that injects the anon key from a Cloudflare secret before forwarding to Supabase. Then site JS only knows about `api.tnbc.info` and never sees the raw anon key.
+
+This is a security hardening optional for the closed-beta phase; recommended before public launch. Documented as a separate task in the Phase 3 hardening list.
+
+## Step 5 — Bulk-export endpoints on R2
+
+For users who want the full corpus rather than paginated API calls, the GitHub Actions harvest workflow uploads the full export files to a Cloudflare R2 bucket. Surface them at `exports.tnbc.info`:
+
+1. **DNS → Add record**: CNAME `exports.tnbc.info` → R2 bucket public URL, proxied.
+2. R2 bucket: `tnbc-atlas-exports`, public-read on the `/latest/` prefix.
+3. Files refresh nightly via the harvest workflow's final step.
+
+Final URLs:
+- `https://exports.tnbc.info/latest/bibliography.csv`
+- `https://exports.tnbc.info/latest/bibliography.jsonl`
+- `https://exports.tnbc.info/latest/bibliography.bib`
+- `https://exports.tnbc.info/latest/bibliography.ris`
+
+Link these from the website's `/research/api/` page.
+
+## Step 6 — OpenAPI consumption
+
+PostgREST's OpenAPI 3 spec is served automatically:
+
+```bash
+curl https://api.tnbc.info/rest/v1/ -H "apikey: ${ANON_KEY}" | jq .info
+```
+
+Client libraries are auto-generatable:
 
 ```bash
 # Python
-openapi-python-client generate --url https://api.tnbc.info/
+openapi-python-client generate --url https://api.tnbc.info/rest/v1/
 
 # TypeScript
-openapi-typescript https://api.tnbc.info/ -o api.d.ts
+openapi-typescript https://api.tnbc.info/rest/v1/ -o api.d.ts
 ```
 
-Document this on `/research/api/` so researchers don't have to figure it out themselves.
+Document this generation step on the website's `/research/api/` page so researchers don't have to figure it out themselves.
 
-## Monitoring
+## Step 7 — Monitoring
 
-- HTTP availability check on `/public_bibliography?limit=1` every 60 seconds.
-- 5xx-rate alarm: alert if >1% of requests over a 5-minute window return 5xx.
-- 429-rate signal (not alarm): high 429 rate suggests a misbehaving client; investigate.
+Three layers:
+
+1. **Supabase dashboard → API → Logs**: per-request log of all PostgREST traffic. Watch for 5xx rates and slow queries.
+2. **Cloudflare Analytics → Traffic**: edge-level request volume, cache hit rate, country distribution.
+3. **External uptime monitor**: UptimeRobot or similar, GETting `https://api.tnbc.info/rest/v1/public_bibliography?limit=1&apikey=...` every 60 seconds. Alert on 5xx or no-response.
+
+## Querying examples
+
+PostgREST's query syntax is documented at <https://postgrest.org/en/stable/api.html>. Highlights:
+
+```bash
+# Filter by year, select specific fields, order by citations descending, limit 10
+curl "https://api.tnbc.info/rest/v1/public_bibliography?publication_year=eq.2025&select=title,doi,citation_count&order=citation_count.desc&limit=10" \
+  -H "apikey: ${ANON_KEY}"
+
+# Full-text-like search on title
+curl "https://api.tnbc.info/rest/v1/public_bibliography?title=ilike.*sacituzumab*&select=title,doi" \
+  -H "apikey: ${ANON_KEY}"
+
+# Pagination via Range header
+curl "https://api.tnbc.info/rest/v1/public_bibliography?select=title,year&order=publication_year.desc" \
+  -H "apikey: ${ANON_KEY}" \
+  -H "Range: 0-49"
+
+# Count
+curl "https://api.tnbc.info/rest/v1/public_bibliography?select=count" \
+  -H "apikey: ${ANON_KEY}" \
+  -H "Prefer: count=exact"
+```
 
 ## Cost
 
-PostgREST is open source, free. Cloudflare's free tier covers the proxying and basic rate limiting. The only meaningful cost is the small VM running PostgREST (~$5/month on Hetzner), and even that can be co-hosted on the harvest host.
+- **Supabase**: PostgREST is included in all tiers, including free.
+- **Cloudflare**: DNS, proxying, edge cache, rate limiting all on the free plan.
+- **R2 storage**: 10 GB free; bibliography exports total < 100 MB, well within free tier.
+- **R2 egress**: 1 million reads/month free, which is far more than expected use.
+
+Net additional cost over the website: **$0**.
 
 ## Checklist
 
-- [ ] `api_anon` role created with `SELECT` limited to `public_bibliography` view
-- [ ] `authenticator` role created with a strong password
-- [ ] `public_bibliography` view created and granted to `api_anon`
-- [ ] PostgREST installed, configured, running as systemd service
-- [ ] Cloudflare DNS record for `api.tnbc.info` created and proxied
-- [ ] Rate-limit rule active at the Cloudflare edge
-- [ ] Cache rule for 5-minute response caching
-- [ ] OpenAPI spec served at `https://api.tnbc.info/`
+- [ ] `sql/03_supabase_public_api.sql` applied to the Supabase project
+- [ ] `public_bibliography` view visible in Supabase Table Editor
+- [ ] `api_anon` role created with `SELECT` only on the public view
+- [ ] DNS CNAME `api.tnbc.info` → `<project-ref>.supabase.co` proxied through Cloudflare
+- [ ] Edge cache rule for `/rest/v1/public_bibliography` (5-min TTL)
+- [ ] Rate-limit rule on `/rest/v1/*` (60/min/IP, 1000/hour/IP)
+- [ ] R2 bucket `tnbc-atlas-exports` created with public-read on `/latest/`
+- [ ] DNS CNAME `exports.tnbc.info` → R2 public URL
+- [ ] GitHub Actions harvest workflow successfully uploads to R2 on completion
+- [ ] OpenAPI spec available at `https://api.tnbc.info/rest/v1/`
 - [ ] Sample queries documented on the website's `/research/api/` page
-- [ ] Bulk exports refreshed nightly and surfaced at `exports.tnbc.info`
-- [ ] Monitoring + 5xx alarm wired to on-call
+- [ ] External uptime monitor configured with alerting destination

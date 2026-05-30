@@ -1,297 +1,261 @@
-# Runbook — Orchestration with Prefect
+# Runbook — Orchestration with GitHub Actions
 
-This runbook describes how to take the manually-invocable scripts and run them as a scheduled, monitored production pipeline.
+The pipeline runs as a set of scheduled GitHub Actions workflows. No servers to maintain, no scheduler process to keep alive, no Prefect Cloud account. Logs and run history live in the GitHub Actions UI. Cost: free for public repositories.
 
-## Why Prefect (over Airflow)
+## Why GitHub Actions over Prefect / Airflow
 
-For a team of 1–3 engineers on a single project of this size, Prefect 2 has substantially less operational overhead than Airflow: no metadata database to manage, no scheduler / web-server / worker split to deploy, and the work-pool model maps cleanly to a single-host setup. We recommend Prefect.
+For a single-project pipeline with weekly cadence and no need for inter-flow data passing, GitHub Actions wins on simplicity:
 
-If your organization already standardizes on Airflow, the same flow logic translates directly; the DAGs would be near-identical in shape.
+- **Already on GitHub.** No additional vendor account, no API keys to manage.
+- **Free for public repos.** Unlimited minutes; 6-hour job timeout; well within our needs.
+- **Secrets are first-class.** `${{ secrets.SUPABASE_DATABASE_URL }}` in workflows; rotation in repo settings.
+- **Logs are right there.** Every run's stdout/stderr captured, browsable from the Actions tab.
+- **No worker host.** No always-on infrastructure required.
+
+We give up: rich flow visualization (Prefect's graph view), automatic retries with backoff (GitHub Actions has it but it's less ergonomic), and elegant data passing between tasks. None of those matter for our four-flow schedule.
 
 ## Architecture
 
 ```
-                    Prefect Cloud (free tier; UI + scheduler)
-                              │
-                              │ pulls work
-                              ▼
-                   ┌─────────────────────┐
-                   │ Worker process on   │
-                   │ harvest host        │
-                   │ (systemd unit)      │
-                   └──────────┬──────────┘
-                              │
-              ┌───────────────┼──────────────┬───────────────┐
-              ▼               ▼              ▼               ▼
-       harvest_pubmed   harvest_europepmc  enrich_*    retraction_sweep
-              │               │              │               │
-              └───────────────┴──────┬───────┴───────────────┘
-                                     ▼
-                          Production PostgreSQL
+                    GitHub
+            ┌──────────────────────┐
+            │  pipeline repo       │
+            │  .github/workflows/  │
+            └──────────┬───────────┘
+                       │  cron triggers fire
+                       ▼
+            ┌──────────────────────┐
+            │  GitHub Actions      │
+            │  runner (Ubuntu)     │
+            │  ephemeral VM,       │
+            │  spun up per run     │
+            └──────────┬───────────┘
+                       │
+            uses SUPABASE_DATABASE_URL
+                       ▼
+            ┌──────────────────────┐
+            │  Supabase            │
+            │  (Postgres + REST)   │
+            └──────────────────────┘
 ```
 
-Prefect Cloud holds the schedule and the run history; the worker process pulls flow runs and executes them locally. The Postgres database is independent of Prefect.
+The runner clones the repo, runs `make install`, executes the appropriate Python scripts, and shuts down. No persistent state between runs except what lives in the database.
 
-## Setup
+## Step 1 — Set repository secrets
 
-### Step 1 — Prefect Cloud account
+In the pipeline repo: **Settings → Secrets and variables → Actions → New repository secret**.
 
-Sign up at <https://app.prefect.cloud>. Free tier covers our needs (3 work pools, unlimited flow runs, 30-day run history).
+Add:
 
-Create a workspace, generate an API key, and store it as a secret on the harvest host:
+| Secret | Value | Used by |
+|---|---|---|
+| `SUPABASE_DATABASE_URL` | `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres` | All workflows that hit Postgres |
+| `CONTACT_EMAIL` | Your project contact email (for polite-pool API headers) | Harvest workflows |
+| `R2_ACCOUNT_ID` | Cloudflare R2 account ID (for export uploads) | Export workflow |
+| `R2_ACCESS_KEY` | R2 access key | Export workflow |
+| `R2_SECRET_KEY` | R2 secret key | Export workflow |
 
-```bash
-prefect cloud login --key <api-key> --workspace <workspace-handle>
+The pooled Supabase URI is recommended for short-lived workflow runs (lower connection-establishment overhead than the direct URI).
+
+## Step 2 — Workflow files
+
+Four workflows in `.github/workflows/`:
+
+### `weekly-harvest.yml`
+
+Runs the full harvest + enrich + filter + tag pipeline once a week.
+
+```yaml
+name: Weekly harvest
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # Mondays 06:00 UTC
+  workflow_dispatch:        # manual trigger button in the Actions tab
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350    # 6-hour ceiling; harvest finishes well inside this
+    env:
+      DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      CONTACT_EMAIL: ${{ secrets.CONTACT_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Harvest PubMed
+        run: python scripts/harvest_pubmed.py
+      - name: Harvest Europe PMC
+        run: python scripts/harvest_europepmc.py
+      - name: Harvest OpenAlex
+        run: python scripts/harvest_openalex.py
+      - name: Dedup and load
+        run: python scripts/dedup_and_load.py
+      - name: Enrich Crossref
+        run: python scripts/enrich_crossref.py
+      - name: Enrich Unpaywall
+        run: python scripts/enrich_unpaywall.py
+      - name: OpenAlex post-filter
+        run: python scripts/filter_openalex_only.py
+      - name: Topic tagging
+        run: python scripts/tag_topics.py
+      - name: Generate exports
+        run: python scripts/export_and_report.py
+      - name: Upload exports to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+        run: |
+          aws --endpoint-url https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com \
+              s3 cp exports/ s3://tnbc-atlas-exports/latest/ --recursive
 ```
 
-### Step 2 — Install Prefect
+### `weekly-retraction-sweep.yml`
 
-On the harvest host (same machine that runs the existing scripts):
+Lightweight; runs the Retraction Watch cross-reference. 5-minute job.
 
-```bash
-pip install "prefect>=2.16,<3"
+```yaml
+name: Weekly retraction sweep
+on:
+  schedule:
+    - cron: '0 12 * * 2'    # Tuesdays 12:00 UTC
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      CONTACT_EMAIL: ${{ secrets.CONTACT_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python scripts/retraction_sweep.py
+      - name: Upload retraction report if anything changed
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retracted-records-${{ github.run_id }}
+          path: reports/retracted.csv
+          retention-days: 90
 ```
 
-Add to `requirements.txt` (the line is currently commented out).
+### `quarterly-tier-review.yml`
 
-### Step 3 — Create a work pool
+Regenerates the tier-1 benchmark and tier-2 candidate list for editorial review. The candidates CSV is uploaded as a workflow artifact so the editorial board can download it from the Actions UI.
 
-```bash
-prefect work-pool create tnbc-atlas --type process
-prefect worker start --pool tnbc-atlas
+```yaml
+name: Quarterly tier review
+on:
+  schedule:
+    - cron: '0 8 15 1,4,7,10 *'   # 15th of Jan/Apr/Jul/Oct, 08:00 UTC
+  workflow_dispatch:
+
+jobs:
+  tier-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python scripts/tier1_benchmark.py
+      - run: python scripts/nominate_tier2.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tier-review-${{ github.run_id }}
+          path: |
+            reports/tier1_coverage.md
+            reports/tier1_matches.csv
+            reports/tier2_nomination.md
+            reports/tier2_candidates.csv
+          retention-days: 365
 ```
 
-The worker process polls Prefect Cloud for flow runs and executes them in subprocesses on the harvest host.
+### `weekly-pg-dump.yml`
 
-Run the worker under systemd for production:
+Defense-in-depth backup to R2 (in addition to Supabase's built-in backups). See `RUNBOOK-production-db.md` for the YAML.
 
-```ini
-# /etc/systemd/system/prefect-worker.service
-[Unit]
-Description=Prefect worker for tnbc-atlas
-After=network.target
+## Step 3 — Deploy
 
-[Service]
-Type=simple
-User=tnbc
-WorkingDirectory=/opt/tnbc-atlas-pipeline
-Environment="PREFECT_API_KEY=<your-key>"
-Environment="PREFECT_API_URL=https://api.prefect.cloud/api/accounts/<acct>/workspaces/<ws>"
-Environment="PGHOST=<production-db-host>"
-Environment="PGUSER=tnbc_app"
-Environment="PGDATABASE=tnbc_atlas"
-EnvironmentFile=/etc/tnbc-atlas/secrets.env
-ExecStart=/usr/local/bin/prefect worker start --pool tnbc-atlas
-Restart=always
-RestartSec=10
+Just commit the workflow files to the repo's `.github/workflows/` directory and push to `main`. GitHub picks them up immediately. The first scheduled run fires at the next matching cron time.
 
-[Install]
-WantedBy=multi-user.target
+To trigger a workflow manually for testing: **Actions tab → Weekly harvest → Run workflow → Run workflow**. Watch logs stream in real time.
+
+## Step 4 — Notifications
+
+GitHub sends email notifications to the repo owner on workflow failures by default. To route to Slack or other channels:
+
+- **Slack**: Use the [Slack GitHub Actions integration](https://github.com/marketplace/actions/slack-notify) as a final step that runs `if: failure()`.
+- **PagerDuty / Opsgenie / Discord**: same pattern, different action.
+
+Example final step:
+
+```yaml
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {"text": "TNBC Atlas weekly harvest failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 ```
 
-Enable: `systemctl enable --now prefect-worker`.
-
-## Flows
-
-Create `flows/` at the repo root with one file per recurring job. Each flow wraps the existing CLI scripts; no script logic moves into Prefect.
-
-### `flows/weekly_harvest.py`
-
-```python
-from datetime import timedelta
-from prefect import flow, task, get_run_logger
-from prefect.runtime import flow_run
-import subprocess
-
-REPO_ROOT = "/opt/tnbc-atlas-pipeline"
-
-@task(retries=2, retry_delay_seconds=60)
-def run_script(script: str, args: list[str] | None = None):
-    log = get_run_logger()
-    cmd = ["python", f"scripts/{script}", *(args or [])]
-    log.info("Running %s", " ".join(cmd))
-    result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=3600)
-    if result.returncode != 0:
-        log.error("STDERR: %s", result.stderr[-2000:])
-        raise RuntimeError(f"{script} exited {result.returncode}")
-    log.info("STDOUT tail: %s", result.stdout[-1000:])
-
-@flow(name="weekly-harvest", retries=1, retry_delay_seconds=600)
-def weekly_harvest():
-    """Weekly incremental harvest: PubMed + Europe PMC + OpenAlex, dedup, enrich, filter, tag."""
-    log = get_run_logger()
-    log.info("Starting weekly harvest run %s", flow_run.id)
-
-    # Primary sources — run sequentially; could parallelize but rate-limit-friendly to serialize
-    run_script("harvest_pubmed.py")
-    run_script("harvest_europepmc.py")
-    run_script("harvest_openalex.py")
-
-    # Dedup + load
-    run_script("dedup_and_load.py")
-
-    # Enrichment (Crossref and Unpaywall are resumable; safe to call repeatedly)
-    run_script("enrich_crossref.py")
-    run_script("enrich_unpaywall.py")
-
-    # Quality passes
-    run_script("filter_openalex_only.py")
-    run_script("tag_topics.py")
-
-    # Exports + browser refresh
-    run_script("export_and_report.py")
-    run_script("build_browser.py")
-
-    log.info("Weekly harvest complete")
-
-if __name__ == "__main__":
-    weekly_harvest.serve(
-        name="weekly-harvest-prod",
-        cron="0 6 * * 1",  # Mondays at 06:00 UTC
-        tags=["harvest", "weekly"],
-    )
-```
-
-### `flows/weekly_retraction.py`
-
-```python
-from prefect import flow, task, get_run_logger
-import subprocess
-
-@task(retries=3, retry_delay_seconds=300)
-def run_sweep():
-    log = get_run_logger()
-    result = subprocess.run(
-        ["python", "scripts/retraction_sweep.py"],
-        cwd="/opt/tnbc-atlas-pipeline", capture_output=True, text=True, timeout=600,
-    )
-    if result.returncode != 0:
-        log.error(result.stderr[-2000:])
-        raise RuntimeError("retraction_sweep failed")
-    log.info(result.stdout[-1000:])
-
-@flow(name="weekly-retraction-sweep")
-def weekly_retraction():
-    """Weekly cross-reference against Retraction Watch."""
-    run_sweep()
-
-if __name__ == "__main__":
-    weekly_retraction.serve(
-        name="weekly-retraction-prod",
-        cron="0 12 * * 2",  # Tuesdays at 12:00 UTC
-        tags=["retraction", "weekly"],
-    )
-```
-
-### `flows/quarterly_recite.py`
-
-```python
-from prefect import flow
-import subprocess
-
-@flow(name="quarterly-citation-refresh")
-def quarterly_recite():
-    """Re-fetch OpenAlex for every record to refresh citation counts."""
-    # Implementation: a script that walks bibliography_records and re-queries OpenAlex
-    # for cited_by_count only. Implementable as scripts/refresh_citations.py;
-    # not built in the pilot but the flow placeholder reserves the slot.
-    raise NotImplementedError("Add scripts/refresh_citations.py before scheduling")
-
-if __name__ == "__main__":
-    quarterly_recite.serve(
-        name="quarterly-recite-prod",
-        cron="0 8 1 1,4,7,10 *",  # 1st of Jan/Apr/Jul/Oct at 08:00 UTC
-        tags=["citation-refresh", "quarterly"],
-    )
-```
-
-### `flows/tier_review.py`
-
-```python
-from prefect import flow
-import subprocess
-
-@flow(name="quarterly-tier-review")
-def quarterly_tier_review():
-    """Regenerate tier-1 benchmark and tier-2 candidate list for editorial review."""
-    for s in ("tier1_benchmark.py", "nominate_tier2.py"):
-        subprocess.run(["python", f"scripts/{s}"], cwd="/opt/tnbc-atlas-pipeline", check=True, timeout=300)
-
-if __name__ == "__main__":
-    quarterly_tier_review.serve(
-        name="quarterly-tier-review-prod",
-        cron="0 8 15 1,4,7,10 *",  # 15th of Jan/Apr/Jul/Oct
-        tags=["editorial", "quarterly"],
-    )
-```
-
-## Deployment
-
-Each flow is deployed once with `python flows/<name>.py`, which registers the schedule with Prefect Cloud. The worker picks up runs automatically.
-
-```bash
-cd /opt/tnbc-atlas-pipeline
-python flows/weekly_harvest.py        # registers + schedules
-python flows/weekly_retraction.py
-python flows/quarterly_recite.py
-python flows/tier_review.py
-```
-
-In the Prefect Cloud UI:
-
-- **Deployments** view shows all four registered flows with their next scheduled run.
-- **Flow runs** view shows historical executions, logs, and durations.
-- **Notifications** can be configured to email or Slack on failure.
-
-## Alerting
-
-Configure two notification rules in Prefect Cloud:
-
-1. **Flow run failure** → email on-call address. Triggered for any state in (`Failed`, `Crashed`, `TimedOut`).
-2. **Flow run taking longer than expected** → notice (not alarm) if a flow runs more than 2× its historical average. The harvest flow should typically complete in under 30 minutes once steady-state.
-
-Also alert from the database layer (Step 9 of `RUNBOOK-production-db.md`): if no `harvest_runs` row is inserted for >8 days, page on-call. This catches failure modes where Prefect itself goes down silently.
+For the closed-beta phase, email-on-failure is sufficient.
 
 ## On-call runbook
 
+There is no on-call in the traditional sense. The workflows run unattended; you're notified by GitHub on failure; you can re-run them on demand.
+
 ### Symptom: weekly harvest failed
 
-1. Open the failed flow run in Prefect Cloud.
-2. Read the last 50 lines of logs (Prefect captures stdout + stderr).
+1. Open the failed run in the **Actions** tab.
+2. Expand the failed step to see the error.
 3. Most common causes:
-   - Upstream API rate limit (HTTP 429) — Prefect retries with exponential backoff; if it still fails, wait an hour and re-trigger manually.
-   - Upstream API schema change — surfaces as a parse error in a harvester. Fix the parser; re-run.
-   - Database connection refused — check production Postgres health (Step 9 of the DB runbook).
-   - Disk full on harvest host — clean `/var/log` and check `df -h`.
+   - **Upstream API rate limit (HTTP 429)**: re-run the workflow manually in 30 minutes; the scripts are resumable.
+   - **Upstream API schema change** (parse error in a harvester): fix the parser locally, commit, push; next scheduled run will succeed. Or re-run the workflow manually after the fix.
+   - **Supabase connection refused**: Supabase free-tier projects pause after a week of inactivity. Log into the dashboard once to wake it; re-run the workflow. (Upgrade to Pro avoids this entirely.)
+   - **Disk space on the runner**: unlikely for our volumes; GitHub runners have ~14 GB free.
 
-4. If you need to re-run just the failed step rather than the whole flow, find the step in the flow run's task list and "Restart" from there.
+4. To resume from a partial run rather than restart from scratch: harvest, enrich, and filter scripts are all idempotent — re-running them picks up where they left off. Simply re-run the workflow; redundant work is skipped.
 
-### Symptom: weekly retraction sweep failed
+### Symptom: no harvest in 8 days
 
-Same diagnostic flow. The most common cause is Crossref Labs returning HTML instead of CSV (a brief outage on their side); just re-run.
+The repository's owner gets notified on failure. If you don't see notifications, check **Settings → Notifications** on your GitHub account.
 
-### Symptom: monitoring says no harvest in 8 days
+If a scheduled workflow stops firing entirely, GitHub may have auto-disabled it (this happens to scheduled workflows on inactive repos). To re-enable: **Actions tab → Weekly harvest → Enable workflow**.
 
-1. Check Prefect worker status: `systemctl status prefect-worker`.
-2. Check the schedule in Prefect Cloud — has it been paused?
-3. Check the harvest host: is it reachable, is disk space available, is the worker process actually running?
-4. If the worker is healthy but no runs are firing, restart it: `systemctl restart prefect-worker`. Schedules will resume.
+### Symptom: workflow runs longer than expected
+
+The 6-hour timeout is much more than we need; if a run approaches 4 hours, something is wrong (upstream API slow, dedup runaway). Cancel the run from the Actions tab and investigate.
 
 ## Cost
 
-Prefect Cloud free tier covers the workload described here (4 deployments, ~6 flow runs per week, well under the 2,000-run/month free-tier ceiling).
+GitHub Actions is **free for public repositories** with unlimited minutes. Private repos get 2,000 minutes/month free; our four workflows total ~30 minutes/week ≈ 130 minutes/month, well within the free private-repo budget if you ever choose to make the repo private.
 
-## Migration from the manual cron / Makefile workflow
+## Migration from the manual Makefile workflow
 
-The Makefile targets continue to work for manual / local invocation. Prefect is layered on top for the scheduled production runs; it doesn't replace the local workflow. A developer testing a script locally still uses `make harvest`; the production environment uses Prefect.
+The Makefile targets continue to work for local invocation. A developer testing a script on their laptop still uses `make harvest`; the production environment uses GitHub Actions. Both call the same Python scripts; the only difference is where they run.
 
 ## Checklist
 
-- [ ] Prefect Cloud account and workspace created
-- [ ] API key stored as a server-side environment variable, not in source
-- [ ] Worker installed as a systemd unit; auto-starts on boot
-- [ ] `flows/` directory created with the four flow files
-- [ ] Each flow deployed and visible in Prefect Cloud UI
-- [ ] Notification rules configured (email or Slack)
-- [ ] Manual smoke run of `weekly_harvest` from the UI completes successfully
-- [ ] On-call runbook (this document) circulated to whoever is on rotation
+- [ ] GitHub repo secrets configured: `SUPABASE_DATABASE_URL`, `CONTACT_EMAIL`, `R2_*` credentials
+- [ ] Four workflow files committed to `.github/workflows/`
+- [ ] Each workflow tested via manual trigger (`workflow_dispatch`) before being left on its cron schedule
+- [ ] Failure-notification destination confirmed (email by default; Slack/PagerDuty optional)
+- [ ] One-line operations doc points the editorial team at the Actions tab to find tier-review artifacts each quarter

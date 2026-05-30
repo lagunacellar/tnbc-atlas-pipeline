@@ -13,7 +13,9 @@ from typing import Any, Iterable
 import psycopg
 from psycopg.rows import dict_row
 
-PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", "/sessions/clever-compassionate-heisenberg/mnt/outputs/tnbc_atlas"))
+# Default to the repo root (parent of scripts/). Overridable via env for
+# environments that prefer to write working data to a separate location.
+PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", Path(__file__).resolve().parents[1]))
 SNAPSHOTS = PROJECT_ROOT / "snapshots"
 LOGS = PROJECT_ROOT / "logs"
 EXPORTS = PROJECT_ROOT / "exports"
@@ -26,11 +28,37 @@ WINDOW_START = "2024-05-10"
 WINDOW_END = "2026-05-10"
 
 # Identify ourselves to upstream APIs (politeness pool / rate-limit etiquette)
-USER_AGENT = "TNBC-Atlas-Pilot/0.1 (mailto:syang@lagunacellar.com)"
-CONTACT_EMAIL = "syang@lagunacellar.com"
+CONTACT_EMAIL = os.environ.get("CONTACT_EMAIL", "syang@lagunacellar.com")
+USER_AGENT = f"TNBC-Atlas-Pipeline/0.2 (mailto:{CONTACT_EMAIL})"
 
 
 def db_dsn() -> str:
+    """Resolve a libpq connection string from environment.
+
+    Three modes, in priority order:
+      1. DATABASE_URL  — full URI; used by GitHub Actions (Supabase pooled URI)
+                         and any deployment-style environment.
+      2. PGHOST / PGUSER / PGDATABASE / PGPASSWORD — classic libpq env vars;
+                         used by local laptop sessions and managed Postgres.
+      3. Unix socket fallback at /tmp/pgsock with user 'postgres' and
+                         database 'tnbc_atlas' — the sandbox-pilot default.
+    """
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        # psycopg accepts postgres:// and postgresql:// URLs directly.
+        # Append sslmode=require for managed Postgres if not already specified.
+        if "sslmode=" not in url and url.startswith(("postgres://", "postgresql://")):
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}sslmode=require"
+        return url
+
+    host = os.environ.get("PGHOST")
+    if host:
+        # Caller supplied PGHOST; psycopg picks up other PG* vars automatically
+        # from the environment, but we set a sensible dbname default.
+        return f"host={host} dbname={os.environ.get('PGDATABASE', 'tnbc_atlas')} user={os.environ.get('PGUSER', 'postgres')}"
+
+    # Sandbox-pilot fallback
     return f"host={os.environ.get('PGSOCK', '/tmp/pgsock')} dbname=tnbc_atlas user=postgres"
 
 

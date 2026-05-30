@@ -1,8 +1,12 @@
-# TNBC Atlas — Phase 1 Pilot
+# TNBC Atlas — Bibliography Pipeline
 
-This folder contains the **Phase 1 pilot harvest** for the TNBC Atlas project (see `../00_master_project_plan.md` and `../01_phase1_bibliography_plan.md`).
+This repo is the data pipeline for the TNBC Atlas project. It harvests bibliographic records for triple-negative breast cancer literature from PubMed, Europe PMC, and OpenAlex; deduplicates them; enriches them with Crossref, Unpaywall, and Retraction Watch; assigns topic tags and tier candidates; and produces the bibliography exports consumed by the website at [tnbc.info](https://tnbc.info).
 
-It demonstrates the bibliography pipeline end-to-end against the most recent 24 months of TNBC literature, using only free public APIs.
+The pipeline runs on free, public-API sources; targets **Supabase** as the production database; and is scheduled by **GitHub Actions cron**. The website is hosted separately on **Cloudflare Pages**. See `docs/RUNBOOK-production-db.md` and `docs/RUNBOOK-orchestration.md` for the production architecture; this README focuses on the pipeline itself.
+
+## Origin
+
+This folder began as the Phase 1 pilot harvest (a 24-month window, 2024-05 → 2026-05, against sandbox Postgres). The pilot validated the architecture end-to-end. The folder is now structured as a standalone repository ready to be published as `tnbc-atlas-pipeline`; see `PUBLISH.md` for the publishing checklist.
 
 ## What's in the box
 
@@ -10,9 +14,20 @@ It demonstrates the bibliography pipeline end-to-end against the most recent 24 
 tnbc_atlas_pilot/
 ├── README.md                      ← this file
 ├── bibliography_browser.html      ← self-contained read-only browser (open in any browser)
+├── .github/workflows/             ← scheduled GitHub Actions cron workflows
+│   ├── weekly-harvest.yml
+│   ├── weekly-retraction-sweep.yml
+│   └── quarterly-tier-review.yml
+├── docs/                          ← deployment + operations runbooks
+│   ├── RUNBOOK-production-db.md   ← Supabase setup
+│   ├── RUNBOOK-orchestration.md   ← GitHub Actions cron
+│   ├── RUNBOOK-public-api.md      ← Supabase PostgREST + Cloudflare DNS
+│   ├── RUNBOOK-full-backfill.md   ← 2005-forward backfill procedure
+│   └── RUNBOOK-coverage-audit.md  ← cross-check vs Frontiers 2023 bibliometric
 ├── sql/
-│   ├── 01_schema.sql              ← Postgres 14 schema (production-portable)
-│   └── 02_enrichment_migration.sql ← columns added by Crossref/Unpaywall/Retraction sweep
+│   ├── 01_schema.sql              ← Postgres 14+ schema (production-portable)
+│   ├── 02_enrichment_migration.sql ← columns added by Crossref/Unpaywall/Retraction sweep
+│   └── 03_supabase_public_api.sql ← public read-only view + RLS for Supabase PostgREST
 ├── curation/
 │   ├── README.md                  ← editorial-owned hand-curated lists
 │   └── tier1_seed.yml             ← 60 foundational TNBC papers (provenance + rationale)
@@ -24,6 +39,9 @@ tnbc_atlas_pilot/
 │   ├── enrich_crossref.py         ← Crossref Works (publication date, type, license, refs, funders)
 │   ├── enrich_unpaywall.py        ← Unpaywall (authoritative OA status + best PDF URL)
 │   ├── retraction_sweep.py        ← Crossref Labs Retraction Watch CSV → flag retracted/concern
+│   ├── filter_openalex_only.py    ← stricter TNBC-relevance filter on OpenAlex-only records
+│   ├── tag_topics.py              ← rule-based topic tagging (MeSH + keyword → 10-domain taxonomy)
+│   ├── nominate_tier2.py          ← algorithmic tier-2 candidate scoring (top decile, high-impact journal, named trial)
 │   ├── tier1_benchmark.py         ← cross-references tier-1 seed list against the corpus; recall benchmark
 │   ├── dedup_and_load.py          ← DOI → PMID → fuzzy-title dedup, load to Postgres
 │   ├── export_and_report.py       ← CSV / JSONL / BibTeX / RIS exports + coverage report
@@ -71,36 +89,30 @@ Click DOI / PMID / OA links to open the source in a new tab.
 
 See `reports/coverage_report.md` for the full breakdown.
 
-## How to reproduce
+## How to reproduce (local development)
 
-The harvest scripts assume a Postgres instance on the Unix socket at `/tmp/pgsock` with database `tnbc_atlas`. Adjust `common.py:db_dsn()` for your environment.
+Python 3.10+ with deps from `requirements.txt`. The scripts resolve their database connection from environment variables, in priority order:
 
-Python deps: `psycopg[binary] requests biopython rapidfuzz pandas pyarrow lxml`.
+1. `DATABASE_URL` — full Postgres URI (production / Supabase)
+2. `PGHOST` + `PGUSER` + `PGDATABASE` — classic libpq env vars
+3. `/tmp/pgsock` socket — sandbox-pilot default
+
+For local development against a laptop Postgres or Supabase:
 
 ```bash
-# Apply schema (and the enrichment migration)
-psql -d tnbc_atlas -f sql/01_schema.sql
-psql -d tnbc_atlas -f sql/02_enrichment_migration.sql
+# Install deps
+make install
 
-# Run the three primary harvesters (PubMed has --resume; OpenAlex has --resume)
-python scripts/harvest_pubmed.py
-python scripts/harvest_europepmc.py
-python scripts/harvest_openalex.py
+# Apply schema (works against either local Postgres or DATABASE_URL=supabase URI)
+make db-init
 
-# Dedup and load
-python scripts/dedup_and_load.py
-
-# Enrich (idempotent and resumable; safe to call repeatedly)
-python scripts/enrich_crossref.py     # ~20 req/s on the polite pool, 6 workers
-python scripts/enrich_unpaywall.py    # ~60 req/s, 6 workers
-python scripts/retraction_sweep.py    # one-shot CSV download + match
-
-# Generate exports + coverage report + read-only browser
-python scripts/export_and_report.py
-python scripts/build_browser.py
+# Full pipeline end-to-end
+make all
 ```
 
-Each harvester accepts `--start YYYY-MM-DD --end YYYY-MM-DD --max N`. Each enricher accepts `--max N --workers K` so you can run them in chunks.
+For production this all runs unattended on GitHub Actions cron schedules (see `docs/RUNBOOK-orchestration.md`).
+
+Each harvester accepts `--start YYYY-MM-DD --end YYYY-MM-DD --max N`. Each enricher accepts `--max N --workers K` so you can run them in chunks. The Makefile exposes `make harvest`, `make enrich`, `make filter`, `make tag`, `make tier2`, `make benchmark`, `make report` as individual stages.
 
 ## Constraints and caveats specific to the pilot
 

@@ -1,0 +1,112 @@
+name: Weekly harvest
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'      # Mondays 06:00 UTC
+  workflow_dispatch:           # manual trigger button in Actions tab
+
+# Run only one at a time; cancel any older queued runs.
+concurrency:
+  group: harvest
+  cancel-in-progress: false
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350       # 6-hour ceiling minus margin
+    env:
+      DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      CONTACT_EMAIL: ${{ secrets.CONTACT_EMAIL }}
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ──────────────────────────────────────────────────────────────
+      # Primary harvest: PubMed, Europe PMC, OpenAlex
+      # Each script is resumable; safe to re-run on failure.
+      # ──────────────────────────────────────────────────────────────
+      - name: Harvest PubMed
+        run: python scripts/harvest_pubmed.py
+      - name: Harvest Europe PMC
+        run: python scripts/harvest_europepmc.py
+      - name: Harvest OpenAlex
+        run: python scripts/harvest_openalex.py
+
+      # ──────────────────────────────────────────────────────────────
+      # Dedup and load into Supabase
+      # ──────────────────────────────────────────────────────────────
+      - name: Dedup and load
+        run: python scripts/dedup_and_load.py
+
+      # ──────────────────────────────────────────────────────────────
+      # Enrichment (idempotent; skips already-enriched rows)
+      # ──────────────────────────────────────────────────────────────
+      - name: Enrich via Crossref
+        run: python scripts/enrich_crossref.py
+      - name: Enrich via Unpaywall
+        run: python scripts/enrich_unpaywall.py
+
+      # ──────────────────────────────────────────────────────────────
+      # Quality passes
+      # ──────────────────────────────────────────────────────────────
+      - name: OpenAlex post-filter
+        run: python scripts/filter_openalex_only.py
+      - name: Topic tagging
+        run: python scripts/tag_topics.py
+
+      # ──────────────────────────────────────────────────────────────
+      # Exports + browser asset (consumed by the website build)
+      # ──────────────────────────────────────────────────────────────
+      - name: Generate exports + coverage report
+        run: python scripts/export_and_report.py
+      - name: Rebuild browser asset
+        run: python scripts/build_browser.py
+
+      # ──────────────────────────────────────────────────────────────
+      # Publish exports to Cloudflare R2
+      # ──────────────────────────────────────────────────────────────
+      - name: Configure AWS CLI for R2
+        run: |
+          aws configure set default.region auto
+          aws configure set default.s3.signature_version s3v4
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+
+      - name: Upload exports to R2 (latest/)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_KEY }}
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          aws --endpoint-url "$R2_ENDPOINT" \
+              s3 cp exports/ s3://tnbc-atlas-exports/latest/ \
+              --recursive \
+              --content-encoding "" \
+              --cache-control "public, max-age=86400"
+
+      # ──────────────────────────────────────────────────────────────
+      # Upload current coverage report as a workflow artifact
+      # ──────────────────────────────────────────────────────────────
+      - name: Archive coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ github.run_id }}
+          path: |
+            reports/coverage_report.md
+            reports/topic_distribution.csv
+            reports/top_journals.csv
+            reports/top_cited.csv
+            reports/openalex_postfilter.md
+          retention-days: 90
