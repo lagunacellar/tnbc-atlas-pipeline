@@ -1,18 +1,13 @@
-"""TNBC Atlas — Rule-based topic-tagging pass.
+"""TNBC Atlas — Rule-based topic-tagging pass (Postgres-native).
 
-Maps MeSH terms and title+abstract keywords to the controlled 10-domain Phase 2
-taxonomy. This is the first pass; the Phase 1 plan calls for an LLM-assisted
-second pass on records that fall through the rule-based net (not implemented
-here — requires an LLM API beyond the sandbox).
+Reads every record from `bibliography_records`, maps MeSH terms and
+title+abstract keywords to the 10-domain Phase 2 taxonomy, and writes the
+tags back to Postgres via COPY-into-temp + UPDATE-FROM.
 
-Rules are intentionally inclusive: a paper that touches a topic gets tagged
-for it. Editorial review demotes false positives during tier-1/2 promotion.
-
-Inputs:  exports/bibliography_filtered.jsonl  (post-filter output)
-         (falls back to bibliography.jsonl if not present)
-Outputs: exports/bibliography_tagged.jsonl
-         reports/topic_tagging.md
-         reports/topic_distribution.csv
+Writes:
+  Postgres bibliography_records.topic_tags / _weak / topic_tag_hits
+  reports/topic_distribution.csv
+  reports/topic_tagging.md
 """
 
 from __future__ import annotations
@@ -24,15 +19,12 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-EXPORTS = ROOT / "exports"
-REPORTS = ROOT / "reports"
-REPORTS.mkdir(parents=True, exist_ok=True)
+from psycopg.types.json import Jsonb
 
-INPUT_PATHS = [
-    EXPORTS / "bibliography_filtered.jsonl",
-    EXPORTS / "bibliography.jsonl",
-]
+sys.path.insert(0, str(Path(__file__).parent))
+from common import REPORTS, db, log
+
+REPORTS.mkdir(parents=True, exist_ok=True)
 
 # Domain definitions, from Phase 2 plan §2 and surfaced on /research/synthesis/.
 DOMAINS = {
@@ -48,74 +40,51 @@ DOMAINS = {
     "J": "Patient experience and ethics",
 }
 
-# MeSH terms that strongly indicate a domain. Match is exact (case-insensitive).
 MESH_RULES: dict[str, set[str]] = {
-    "A": {
-        "Incidence", "Prevalence", "Mortality", "Survival Rate", "Risk Factors",
-        "Healthcare Disparities", "Ethnic Groups", "African Americans",
-        "Black or African American", "Health Status Disparities",
-        "Socioeconomic Factors", "Epidemiology",
-    },
-    "B": {
-        "Gene Expression Profiling", "Transcriptome", "Genomics", "Proteomics",
-        "Single-Cell Analysis", "RNA-Seq", "Sequence Analysis, RNA",
-        "BRCA1 Protein", "BRCA2 Protein", "Homologous Recombination",
-        "Tumor Microenvironment", "Lymphocytes, Tumor-Infiltrating",
-        "Receptor, ErbB-2", "Receptors, Estrogen", "Receptors, Progesterone",
-        "Androgen Receptor Antagonists", "Cell Line, Tumor",
-        "Molecular Classification", "Gene Expression Regulation, Neoplastic",
-    },
-    "C": {
-        "Immunohistochemistry", "Biopsy", "Biopsy, Large-Core Needle",
-        "Mammography", "Magnetic Resonance Imaging", "Ultrasonography, Mammary",
-        "In Situ Hybridization, Fluorescence", "Pathology, Clinical",
-        "Biomarkers, Tumor", "Neoplasm Staging", "Image Processing, Computer-Assisted",
-    },
-    "D": {
-        "Neoadjuvant Therapy", "Mastectomy", "Lumpectomy", "Segmental Mastectomy",
-        "Radiotherapy, Adjuvant", "Chemotherapy, Adjuvant",
-        "Antineoplastic Combined Chemotherapy Protocols",
-        "Mastectomy, Segmental",
-    },
-    "E": {
-        "Neoplasm Metastasis", "Brain Neoplasms", "Lung Neoplasms",
-        "Liver Neoplasms", "Bone Neoplasms", "Antibodies, Monoclonal, Humanized",
-        "Immunoconjugates", "Poly(ADP-ribose) Polymerase Inhibitors",
-    },
-    "F": {
-        "Immunotherapy", "Immune Checkpoint Inhibitors", "B7-H1 Antigen",
-        "Programmed Cell Death 1 Receptor", "T-Lymphocytes",
-        "Immunotherapy, Adoptive",
-    },
-    "G": {
-        "Artificial Intelligence", "Deep Learning", "Neural Networks, Computer",
-        "Machine Learning", "Computational Biology", "Algorithms",
-    },
-    "H": {
-        "Clinical Trials as Topic", "Randomized Controlled Trials as Topic",
-        "Research Design", "Endpoint Determination", "Bayes Theorem",
-    },
-    "I": {
-        "Survivorship", "Quality of Life", "Cardiotoxicity", "Lymphedema",
-        "Fatigue", "Sleep Wake Disorders", "Palliative Care",
-        "Patient Reported Outcome Measures",
-    },
-    "J": {
-        "Decision Making, Shared", "Patient Participation", "Genetic Counseling",
-        "Health Services Accessibility", "Bioethics", "Health Equity",
-    },
+    "A": {"Incidence", "Prevalence", "Mortality", "Survival Rate", "Risk Factors",
+          "Healthcare Disparities", "Ethnic Groups", "African Americans",
+          "Black or African American", "Health Status Disparities",
+          "Socioeconomic Factors", "Epidemiology"},
+    "B": {"Gene Expression Profiling", "Transcriptome", "Genomics", "Proteomics",
+          "Single-Cell Analysis", "RNA-Seq", "Sequence Analysis, RNA",
+          "BRCA1 Protein", "BRCA2 Protein", "Homologous Recombination",
+          "Tumor Microenvironment", "Lymphocytes, Tumor-Infiltrating",
+          "Receptor, ErbB-2", "Receptors, Estrogen", "Receptors, Progesterone",
+          "Androgen Receptor Antagonists", "Cell Line, Tumor",
+          "Molecular Classification", "Gene Expression Regulation, Neoplastic"},
+    "C": {"Immunohistochemistry", "Biopsy", "Biopsy, Large-Core Needle",
+          "Mammography", "Magnetic Resonance Imaging", "Ultrasonography, Mammary",
+          "In Situ Hybridization, Fluorescence", "Pathology, Clinical",
+          "Biomarkers, Tumor", "Neoplasm Staging", "Image Processing, Computer-Assisted"},
+    "D": {"Neoadjuvant Therapy", "Mastectomy", "Lumpectomy", "Segmental Mastectomy",
+          "Radiotherapy, Adjuvant", "Chemotherapy, Adjuvant",
+          "Antineoplastic Combined Chemotherapy Protocols", "Mastectomy, Segmental"},
+    "E": {"Neoplasm Metastasis", "Brain Neoplasms", "Lung Neoplasms",
+          "Liver Neoplasms", "Bone Neoplasms", "Antibodies, Monoclonal, Humanized",
+          "Immunoconjugates", "Poly(ADP-ribose) Polymerase Inhibitors"},
+    "F": {"Immunotherapy", "Immune Checkpoint Inhibitors", "B7-H1 Antigen",
+          "Programmed Cell Death 1 Receptor", "T-Lymphocytes",
+          "Immunotherapy, Adoptive"},
+    "G": {"Artificial Intelligence", "Deep Learning", "Neural Networks, Computer",
+          "Machine Learning", "Computational Biology", "Algorithms"},
+    "H": {"Clinical Trials as Topic", "Randomized Controlled Trials as Topic",
+          "Research Design", "Endpoint Determination", "Bayes Theorem"},
+    "I": {"Survivorship", "Quality of Life", "Cardiotoxicity", "Lymphedema",
+          "Fatigue", "Sleep Wake Disorders", "Palliative Care",
+          "Patient Reported Outcome Measures"},
+    "J": {"Decision Making, Shared", "Patient Participation", "Genetic Counseling",
+          "Health Services Accessibility", "Bioethics", "Health Equity"},
 }
 
-# Keyword rules over title + abstract + keywords. Word-boundary regex (case-insensitive).
+
 def kw(*terms: str) -> list[re.Pattern[str]]:
     return [re.compile(r"\b" + re.escape(t) + r"\b", re.I) for t in terms]
+
 
 KEYWORD_RULES: dict[str, list[re.Pattern[str]]] = {
     "A": kw("epidemiology", "incidence", "prevalence", "disparities", "ancestry",
             "African American", "Black women", "socioeconomic", "underrepresented",
-            "BRCA1 carriers", "risk factors") + [
-            re.compile(r"\bdispar(?:ity|ities)\b", re.I),
-        ],
+            "BRCA1 carriers", "risk factors") + [re.compile(r"\bdispar(?:ity|ities)\b", re.I)],
     "B": kw("subtype", "subtypes", "molecular classification", "transcriptomic",
             "genomic", "BRCA", "HRD", "homologous recombination", "BL1", "BL2",
             "BLIA", "BLIS", "MSL", "LAR", "luminal androgen receptor",
@@ -124,8 +93,7 @@ KEYWORD_RULES: dict[str, list[re.Pattern[str]]] = {
             "single-cell", "single cell", "spatial transcriptom") + [
             re.compile(r"\bER[\s\-]?negative\b", re.I),
             re.compile(r"\bPR[\s\-]?negative\b", re.I),
-            re.compile(r"\bHER2[\s\-]?(?:low|negative|zero)\b", re.I),
-        ],
+            re.compile(r"\bHER2[\s\-]?(?:low|negative|zero)\b", re.I)],
     "C": kw("immunohistochemistry", "IHC", "FISH", "biopsy", "diagnosis",
             "pathology", "mammography", "MRI", "ultrasound", "biomarker",
             "PD-L1 expression", "CPS score", "Ki-67", "Ki67", "staging",
@@ -162,11 +130,9 @@ KEYWORD_RULES: dict[str, list[re.Pattern[str]]] = {
             "patient navigation"),
 }
 
-
-# Precompute: combined alternation regex per domain (much faster than N separate searches).
-# Also precompute lowercased MeSH rule sets.
+# Precompute: combined alternation regex per domain (one search per domain instead of N).
 _KEYWORD_COMBINED: dict[str, re.Pattern[str]] = {
-    domain: re.compile("|".join(p.pattern for p in pats))  # patterns already have re.I via compile
+    domain: re.compile("|".join(p.pattern for p in pats))
     for domain, pats in KEYWORD_RULES.items()
 }
 _MESH_LOWER: dict[str, set[str]] = {
@@ -175,72 +141,80 @@ _MESH_LOWER: dict[str, set[str]] = {
 }
 
 
-def tag_record(rec: dict) -> dict[str, int]:
-    """Returns {domain_letter: hit_count}. Optimized: one regex search per domain."""
-    mesh_lower = {m.lower() for m in (rec.get("mesh_terms") or [])}
-    text = " ".join([
-        rec.get("title") or "",
-        rec.get("abstract") or "",
-        " ".join(rec.get("keywords") or []),
-    ])
+def tag_record(title: str | None, abstract: str | None, keywords: list[str] | None,
+               mesh_terms: list[str] | None) -> dict[str, int]:
+    """Returns {domain_letter: hit_count}."""
+    mesh_lower = {(m or "").lower() for m in (mesh_terms or [])}
+    text = " ".join([title or "", abstract or "", " ".join(keywords or [])])
 
     hits: dict[str, int] = defaultdict(int)
-
-    # MeSH pass
     for domain, terms in _MESH_LOWER.items():
         n = sum(1 for t in terms if t in mesh_lower)
         if n:
             hits[domain] += 2 * n
-
-    # Keyword pass — one combined search per domain, count matches via findall
     for domain, combined in _KEYWORD_COMBINED.items():
         matches = combined.findall(text)
         if matches:
             hits[domain] += len(matches)
-
     return dict(hits)
 
 
 def main() -> None:
-    in_path = next((p for p in INPUT_PATHS if p.exists()), None)
-    if not in_path:
-        print(f"No input found. Looked in: {INPUT_PATHS}", file=sys.stderr)
-        sys.exit(1)
-    print(f"Reading {in_path.name}")
+    log("reading records from Postgres", "tag")
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT record_id, title, abstract, keywords, mesh_terms
+              FROM bibliography_records
+        """)
+        records = cur.fetchall()
+    log(f"  loaded {len(records):,} records", "tag")
 
-    records: list[dict] = []
-    with open(in_path) as fh:
-        for line in fh:
-            line = line.strip()
-            if line:
-                records.append(json.loads(line))
-    print(f"  loaded {len(records):,} records")
-
-    # Tag
+    updates: list[tuple] = []  # (record_id, topic_tags, topic_tags_weak, topic_tag_hits)
     domain_counts: Counter[str] = Counter()
     multi_tag_distribution: Counter[int] = Counter()
     untagged_records = 0
+
     for r in records:
-        hits = tag_record(r)
-        # Only tag domains with at least 2 hits to reduce noise from single-keyword brushes
+        hits = tag_record(r["title"], r["abstract"], r["keywords"], r["mesh_terms"])
         domains = sorted([d for d, n in hits.items() if n >= 2])
-        # Records with only 1 hit are tagged anyway but flagged low-confidence
         weak_domains = sorted([d for d, n in hits.items() if n == 1])
-        r["topic_tags"] = domains
-        r["topic_tags_weak"] = weak_domains
-        r["topic_tag_hits"] = hits
+        updates.append((
+            r["record_id"],
+            domains,
+            weak_domains,
+            Jsonb(hits) if hits else Jsonb({}),
+        ))
         for d in domains:
             domain_counts[d] += 1
         multi_tag_distribution[len(domains)] += 1
         if not domains and not weak_domains:
             untagged_records += 1
 
-    # Write tagged corpus
-    out_jsonl = EXPORTS / "bibliography_tagged.jsonl"
-    with open(out_jsonl, "w") as fh:
-        for r in records:
-            fh.write(json.dumps(r, default=str) + "\n")
-    print(f"Wrote {out_jsonl}")
+    log(f"  classified; writing back to Postgres", "tag")
+
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TEMP TABLE tag_updates (
+                record_id        UUID PRIMARY KEY,
+                topic_tags       TEXT[],
+                topic_tags_weak  TEXT[],
+                topic_tag_hits   JSONB
+            ) ON COMMIT DROP
+        """)
+        with cur.copy("COPY tag_updates (record_id, topic_tags, topic_tags_weak, topic_tag_hits) FROM STDIN") as copy:
+            for row in updates:
+                copy.write_row(row)
+        cur.execute("""
+            UPDATE bibliography_records r
+               SET topic_tags      = u.topic_tags,
+                   topic_tags_weak = u.topic_tags_weak,
+                   topic_tag_hits  = u.topic_tag_hits
+              FROM tag_updates u
+             WHERE r.record_id = u.record_id
+        """)
+        log(f"  UPDATEd {len(updates):,} rows", "tag")
 
     # Per-domain CSV
     csv_path = REPORTS / "topic_distribution.csv"
@@ -250,17 +224,16 @@ def main() -> None:
         for d in sorted(DOMAINS):
             n = domain_counts.get(d, 0)
             w.writerow([d, DOMAINS[d], n, f"{100*n/len(records):.1f}"])
-    print(f"Wrote {csv_path}")
+    log(f"wrote {csv_path}", "tag")
 
     # Markdown report
     md: list[str] = []
     md.append("# Topic Tagging Report (Rule-Based First Pass)")
     md.append("")
-    md.append(f"**Corpus:** {len(records):,} records (input: `{in_path.name}`)")
+    md.append(f"**Corpus:** {len(records):,} records (read from Postgres)")
     md.append("")
     md.append("**Approach:** Each record is scored against MeSH-term and title/abstract/keyword rule sets per the 10-domain Phase 2 taxonomy. MeSH matches are weighted 2 points; keyword matches 1 point. A domain is tagged when a record accumulates &ge; 2 hits. Records with only 1 hit per domain are recorded as weak tags for editorial follow-up.")
     md.append("")
-
     md.append("## Tags per domain")
     md.append("")
     md.append("| Code | Domain | Tagged records | Share of corpus |")
@@ -270,10 +243,7 @@ def main() -> None:
         pct = 100 * n / len(records)
         md.append(f"| {d} | {DOMAINS[d]} | {n:,} | {pct:.1f}% |")
     md.append("")
-
     md.append("## Multi-domain tagging distribution")
-    md.append("")
-    md.append("Many TNBC papers legitimately span multiple domains (e.g., a paper on ML-assisted prediction of neoadjuvant response tags B, C, D, G). The distribution:")
     md.append("")
     md.append("| Domains tagged per record | Count | Share |")
     md.append("|---:|---:|---:|")
@@ -282,42 +252,15 @@ def main() -> None:
         pct = 100 * n / len(records)
         md.append(f"| {k} | {n:,} | {pct:.1f}% |")
     md.append("")
+    md.append(f"**Untagged:** {untagged_records:,} ({100*untagged_records/len(records):.1f}%) — deferred to LLM-assisted second pass.")
+    md.append("")
+    (REPORTS / "topic_tagging.md").write_text("\n".join(md))
+    log(f"wrote {REPORTS / 'topic_tagging.md'}", "tag")
 
-    md.append("## Untagged records")
-    md.append("")
-    md.append(f"**{untagged_records:,}** records ({100*untagged_records/len(records):.1f}%) did not match any rule. These fall through to the LLM-assisted second pass in production (not run here). Common reasons in the pilot:")
-    md.append("")
-    md.append("- Preprint or dataset records without abstracts")
-    md.append("- Conference abstracts with very terse content")
-    md.append("- Papers where TNBC is mentioned only in passing (the OpenAlex post-filter should have caught most of these; remainder is for editorial review)")
-    md.append("- Non-English records where the keyword regex misses the term")
-    md.append("")
-
-    md.append("## Caveats")
-    md.append("")
-    md.append("- Rule-based first pass is intentionally inclusive. Editorial review demotes false positives during tier-1 / tier-2 promotion.")
-    md.append("- The keyword set is biased toward English-language clinical and biology terminology. Records in other languages or in adjacent fields (basic biology, drug discovery) may be under-tagged. The LLM-assisted second pass is the planned mitigation.")
-    md.append("- MeSH terms are only present on PubMed-derived records (~50% of the corpus). OpenAlex-only and Europe-PMC-only records rely entirely on keyword matching against title + abstract.")
-    md.append("- The taxonomy is versioned in the project repo. When the editorial board adds, splits, or merges domains, a re-tagging pass over the corpus is required.")
-    md.append("")
-
-    md.append("## How to apply in production")
-    md.append("")
-    md.append("1. Run after `filter_openalex_only.py` so OpenAlex-only drops don't get tagged.")
-    md.append("2. The LLM-assisted second pass (not implemented in this script) takes the rule-based output, looks at untagged records and records with only weak tags, and proposes additional tags from the same controlled taxonomy. Every LLM-suggested tag goes into `ml_subtopic_tags` (separate column) until reviewed.")
-    md.append("3. Editorial review focuses on (a) untagged records, (b) records tagged only weakly, (c) records tagged in unexpected domain combinations.")
-    md.append("4. Promoted tags flow into the website's library filter and into the synthesis-page bibliography slices.")
-    md.append("")
-
-    rep_path = REPORTS / "topic_tagging.md"
-    rep_path.write_text("\n".join(md))
-    print(f"Wrote {rep_path}")
-
-    # Console summary
     print()
     print("=== SUMMARY ===")
     print(f"Records tagged in at least one domain: {len(records) - untagged_records:,} ({100*(len(records)-untagged_records)/len(records):.1f}%)")
-    print(f"Records untagged (deferred to LLM pass): {untagged_records:,}")
+    print(f"Records untagged: {untagged_records:,}")
     for d in sorted(DOMAINS):
         print(f"  Domain {d} ({DOMAINS[d][:30]:30s}): {domain_counts.get(d,0):>5} records ({100*domain_counts.get(d,0)/len(records):.1f}%)")
 

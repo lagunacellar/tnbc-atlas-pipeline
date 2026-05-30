@@ -34,7 +34,9 @@ def fetch_all() -> list[dict]:
                    mesh_terms, keywords, language, countries,
                    oa_status, oa_url, citation_count, source_provenance,
                    crossref_type, license, references_count,
-                   retraction_status, retraction_notice_doi, retracted_at
+                   retraction_status, retraction_notice_doi, retracted_at,
+                   tier, topic_tags, topic_tags_weak, topic_tag_hits,
+                   tnbc_relevance_score, tnbc_relevance_decision, tnbc_relevance_matched
             FROM bibliography_records
             ORDER BY publication_year DESC NULLS LAST, citation_count DESC NULLS LAST
         """)

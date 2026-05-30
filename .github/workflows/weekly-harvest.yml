@@ -57,23 +57,18 @@ jobs:
         run: python scripts/enrich_unpaywall.py
 
       # ──────────────────────────────────────────────────────────────
-      # Exports (must run before filter/tag — they read JSONL exports)
-      # ──────────────────────────────────────────────────────────────
-      - name: Generate exports + coverage report
-        run: python scripts/export_and_report.py
-
-      # ──────────────────────────────────────────────────────────────
-      # Quality passes — write filter/tag artifacts to exports/
-      # (current pilot scripts: JSONL in, JSONL out; Postgres unchanged.
-      #  Follow-up: update these to write back to Postgres so the
-      #  published bibliography includes their results.)
+      # Quality passes — Postgres-native (read + write bibliography_records)
       # ──────────────────────────────────────────────────────────────
       - name: OpenAlex post-filter
         run: python scripts/filter_openalex_only.py
       - name: Topic tagging
         run: python scripts/tag_topics.py
 
-      # Browser asset (reads from Postgres)
+      # ──────────────────────────────────────────────────────────────
+      # Exports + browser asset (read Postgres; reflect filter/tag results)
+      # ──────────────────────────────────────────────────────────────
+      - name: Generate exports + coverage report
+        run: python scripts/export_and_report.py
       - name: Rebuild browser asset
         run: python scripts/build_browser.py
 
