@@ -143,9 +143,12 @@ _MESH_LOWER: dict[str, set[str]] = {
 
 def tag_record(title: str | None, abstract: str | None, keywords: list[str] | None,
                mesh_terms: list[str] | None) -> dict[str, int]:
-    """Returns {domain_letter: hit_count}."""
-    mesh_lower = {(m or "").lower() for m in (mesh_terms or [])}
-    text = " ".join([title or "", abstract or "", " ".join(keywords or [])])
+    """Returns {domain_letter: hit_count}. Defensive against NULL elements in TEXT[] columns."""
+    # Postgres TEXT[] can contain NULL elements; psycopg returns these as Python None.
+    # Filter them out before any string operations.
+    mesh_lower = {m.lower() for m in (mesh_terms or []) if m}
+    keywords_clean = [k for k in (keywords or []) if k]
+    text = " ".join([title or "", abstract or "", " ".join(keywords_clean)])
 
     hits: dict[str, int] = defaultdict(int)
     for domain, terms in _MESH_LOWER.items():
