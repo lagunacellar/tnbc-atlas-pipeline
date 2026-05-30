@@ -4,7 +4,8 @@ Reads bibliography_records from Postgres, projects a slim record per row,
 and emits a single HTML file with embedded JSON, Grid.js + Tailwind via CDN,
 and filter chips for year / OA status / source presence / citation threshold.
 
-Output: bibliography_browser.html (alongside this folder).
+Output: exports/bibliography_browser.html (picked up by the R2 upload step
+alongside the CSV / JSONL / BibTeX / RIS exports).
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import db, log
+from common import EXPORTS, db, log
 
 
 def slim(r: dict) -> dict:
@@ -355,7 +356,7 @@ def main():
     json_blob = json.dumps(records, separators=(",", ":"), ensure_ascii=False, default=str)
     log(f"JSON size: {len(json_blob)/1024/1024:.1f} MB", "browser")
     out = HTML_TEMPLATE.replace("__DATA_PLACEHOLDER__", json_blob)
-    out_path = Path(__file__).resolve().parents[1] / "bibliography_browser.html"
+    out_path = EXPORTS / "bibliography_browser.html"
     out_path.write_text(out, encoding="utf-8")
     log(f"wrote {out_path} ({out_path.stat().st_size/1024/1024:.1f} MB)", "browser")
 

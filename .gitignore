@@ -5,6 +5,7 @@ exports/*.jsonl
 exports/*.csv
 exports/*.bib
 exports/*.ris
+exports/*.html
 reports/*.csv
 reports/retracted.csv
 bibliography_browser.html
