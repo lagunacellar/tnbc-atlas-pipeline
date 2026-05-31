@@ -28,6 +28,18 @@ COMMENT ON COLUMN bibliography_records.topic_tag_hits IS
   'Per-domain hit count from the rule-based tagging pass; informs LLM-assisted second-pass triage.';
 
 -- Indexes that the public API view will benefit from ──────────────────
-CREATE INDEX IF NOT EXISTS idx_records_relevance_decision
-  ON bibliography_records (tnbc_relevance_decision)
-  WHERE tnbc_relevance_decision IS NOT NULL;
+--
+-- Note on the WHERE-less form: the original version of this migration
+-- created a partial index `WHERE tnbc_relevance_decision IS NOT NULL`.
+-- That excluded the trusted-source seeds (which carry NULL because the
+-- post-filter doesn't apply to them) and forced sequential scans whenever
+-- the public_bibliography view's `IS NULL OR IN (...)` predicate fired
+-- on the NULL branch. The non-partial form below indexes both NULL and
+-- non-NULL values so both branches of the view's WHERE can use the index.
+--
+-- `NULLS FIRST` matters because PostgreSQL's default for ascending B-tree
+-- indexes is `NULLS LAST`; specifying NULLS FIRST keeps NULL lookups O(log n)
+-- alongside the typed-value lookups.
+DROP INDEX IF EXISTS idx_records_relevance_decision;
+CREATE INDEX idx_records_relevance_decision
+  ON bibliography_records (tnbc_relevance_decision NULLS FIRST);

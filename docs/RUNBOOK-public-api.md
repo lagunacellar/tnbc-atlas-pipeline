@@ -76,13 +76,16 @@ Before adding the custom domain, sanity-check that the API works through Supabas
 # The anon JWT key is in Supabase: Settings → API → anon (public) key
 ANON_KEY="<paste-from-supabase-dashboard>"
 
-curl "https://<project-ref>.supabase.co/rest/v1/public_bibliography?select=count" \
+# Fetch one row — confirms the view exists, anon has SELECT, and the
+# data path is healthy. Should be sub-second.
+curl -i "https://<project-ref>.supabase.co/rest/v1/public_bibliography?limit=1" \
   -H "apikey: ${ANON_KEY}" \
-  -H "Authorization: Bearer ${ANON_KEY}" \
-  -H "Prefer: count=exact"
+  -H "Authorization: Bearer ${ANON_KEY}"
 ```
 
-Expected: a small JSON body, plus a `content-range` response header showing the total row count. If you get a 401, the anon key is wrong; if you get a 404, the view wasn't created.
+Expected: HTTP 200, `content-type: application/json`, body is a single-element JSON array. If you get a 401, the anon key is wrong; if you get a 403, the anon role lacks SELECT on the view (see `sql/03_supabase_public_api.sql`); if you get a 404, the view wasn't created.
+
+> **Don't use `?select=count` with `Prefer: count=exact` for this probe.** The count aggregate must visit every row matching the view's WHERE clause and is the slowest possible thing to ask the database for. See the "When counts time out" section under Step 3 for the dedicated count-friendly verify pattern.
 
 ## Step 3 — Provision the Supabase Custom Domain
 
@@ -107,15 +110,45 @@ Back in Supabase:
 
 10. Click **Verify**. Supabase resolves the CNAME, confirms the chain, and issues a Let's Encrypt cert for `api.tnbc.info`. This usually completes within 1–2 minutes; refresh the page if it doesn't update immediately.
 
-Verify the custom domain end-to-end:
+Verify the custom domain end-to-end. Use this **two-step probe** — the first call checks that the API is reachable and the view returns real data; the second checks that the count infrastructure works without paying the full aggregate cost:
 
 ```bash
-curl "https://api.tnbc.info/rest/v1/public_bibliography?select=count" \
+# Probe 1: fetch one row through the custom domain. Should return HTTP 200
+# with a JSON array containing one full record, in well under a second.
+curl -i "https://api.tnbc.info/rest/v1/public_bibliography?limit=1" \
+  -H "apikey: ${ANON_KEY}"
+
+# Probe 2: get an estimated row count via the content-range header.
+# `count=estimated` uses Postgres's pg_class.reltuples (no scan) and is
+# instant; `count=exact` would force a full aggregate over the view's
+# WHERE clause, which is expensive on growing tables.
+curl -I "https://api.tnbc.info/rest/v1/public_bibliography?limit=1" \
   -H "apikey: ${ANON_KEY}" \
-  -H "Prefer: count=exact"
+  -H "Prefer: count=estimated"
 ```
 
-Same JSON response as Step 2, now served via the branded hostname with a cert issued for `api.tnbc.info`. If you see a TLS error, DNS propagation may not be complete yet (give it another minute); if you see Cloudflare error 1014, the CNAME target is wrong — confirm it's pointed at the Supabase custom-domain target and not at the bare `<project-ref>.supabase.co`.
+Expected response shapes:
+
+- **Probe 1**: `HTTP/2 200`, `content-type: application/json`, body is a single-element JSON array with all 31 view columns populated. `x-envoy-upstream-service-time` under 500ms (typically ~100–200ms once the connection is warm).
+- **Probe 2**: `HTTP/2 206`, `content-range: 0-0/~14319` (the `~` prefix signals estimated). Sub-second.
+
+If you see a TLS error, DNS propagation may not be complete yet (give it another minute). If you see Cloudflare error 1014, the CNAME target is wrong — confirm it's pointed at the Supabase custom-domain target and not at the bare `<project-ref>.supabase.co`. If you see HTTP 500 with `code: 57014` ("canceling statement due to statement timeout"), the schema-fix migrations haven't been applied yet — see the "When counts time out" troubleshooting section below.
+
+### When counts time out
+
+Symptom: a verify request with `Prefer: count=exact` (or any aggregate over the full view) returns HTTP 500 with body `{"code":"57014","message":"canceling statement due to statement timeout"}`. Two compounding causes, both addressed in the SQL migrations:
+
+1. **The original view's WHERE clause wrapped `tnbc_relevance_decision` in `COALESCE(...)`, defeating the index.** Postgres can't use a regular column index when the column is wrapped in a function call, so the planner fell back to a sequential scan. The view in `sql/03_supabase_public_api.sql` now uses an equivalent `IS NULL OR ... IN (...)` form that the planner can map to index lookups; the partial index in `sql/02b_quality_passes_migration.sql` was also rebuilt without its `WHERE tnbc_relevance_decision IS NOT NULL` clause so NULL rows are covered too.
+2. **Supabase's default anon `statement_timeout` is 3 seconds**, which is genuinely tight for any aggregate over a multi-thousand-row table — even with the right indexes, `count(*)` must visit every row that passes the predicate, and no index can short-circuit that work. `sql/03_supabase_public_api.sql` raises the anon timeout to 15 seconds with `ALTER ROLE anon SET statement_timeout = '15s';`.
+
+If you hit this on a fresh Supabase project, reapply both SQL files in order:
+
+```bash
+psql "$DATABASE_URL" -f sql/02b_quality_passes_migration.sql
+psql "$DATABASE_URL" -f sql/03_supabase_public_api.sql
+```
+
+Then rerun Probe 2 above. Even with both fixes, **the website should still use `Prefer: count=estimated` for any visible "X records" badge** — it's instant, accurate to within a few percent, and avoids the count-aggregate path entirely. Reserve `count=exact` for admin queries and ad-hoc verification where the small extra latency is acceptable.
 
 ## Step 4 — Cloudflare edge configuration (optional, orange-cloud mode only)
 
@@ -238,7 +271,14 @@ curl "https://api.tnbc.info/rest/v1/public_bibliography?select=title,year&order=
   -H "apikey: ${ANON_KEY}" \
   -H "Range: 0-49"
 
-# Count
+# Count — fast (estimated, from pg_class.reltuples; sub-millisecond)
+curl -I "https://api.tnbc.info/rest/v1/public_bibliography?limit=1" \
+  -H "apikey: ${ANON_KEY}" \
+  -H "Prefer: count=estimated"
+
+# Count — exact (full aggregate; only use for admin / ad-hoc queries —
+# the anon role's statement_timeout is raised to 15s to accommodate this
+# path, but the website should never rely on it)
 curl "https://api.tnbc.info/rest/v1/public_bibliography?select=count" \
   -H "apikey: ${ANON_KEY}" \
   -H "Prefer: count=exact"
@@ -262,7 +302,8 @@ Net cost at closed-beta launch: **~$25/month** (Supabase Pro only). At public la
 - [ ] Supabase project upgraded to Pro (required for Custom Domain)
 - [ ] Custom domain `api.tnbc.info` added in Supabase **Settings → Custom Domains** and verified
 - [ ] DNS CNAME `api.tnbc.info` → Supabase-provided custom-domain target, **DNS only** (grey cloud) at Cloudflare
-- [ ] `curl` against `https://api.tnbc.info/rest/v1/public_bibliography?select=count` returns JSON with no TLS or 1014 error
+- [ ] `curl -i https://api.tnbc.info/rest/v1/public_bibliography?limit=1` returns HTTP 200 with a real record (Probe 1 from Step 3) — no TLS error, no 1014, sub-second
+- [ ] `curl -I https://api.tnbc.info/rest/v1/public_bibliography?limit=1` with `Prefer: count=estimated` returns HTTP 206 with a `content-range` header showing the estimated total (Probe 2 from Step 3)
 - [ ] R2 bucket `tnbc-atlas-exports` created with public-read on `/latest/`
 - [ ] DNS CNAME `exports.tnbc.info` → R2 public URL (proxied — orange cloud OK here)
 - [ ] GitHub Actions harvest workflow successfully uploads to R2 on completion

@@ -3,16 +3,43 @@
 -- Creates the read-only public view exposed via PostgREST (auto-served by
 -- Supabase at /rest/v1/) and grants SELECT to the anon role.
 --
--- Apply once after 01_schema.sql and 02_enrichment_migration.sql.
+-- Apply once after 01_schema.sql, 02_enrichment_migration.sql, and
+-- 02b_quality_passes_migration.sql.
 --
 -- The anon role is created automatically by Supabase; we only need to grant
 -- it SELECT on the public view (not on the underlying tables). Internal
 -- columns like source_provenance and tnbc_relevance_matched stay private.
+--
+-- ── Important: do not wrap tnbc_relevance_decision in COALESCE ──
+-- An earlier version of this file expressed the "kept by the relevance
+-- filter, or never went through the filter (trusted_source seeds)" predicate
+-- as:
+--
+--     WHERE COALESCE(tnbc_relevance_decision, 'trusted_source') IN (...)
+--
+-- That form is logically correct but Postgres cannot use a regular column
+-- index on tnbc_relevance_decision when the column is wrapped in a function
+-- call — the planner falls back to a sequential scan, and the per-row
+-- COALESCE evaluation is just expensive enough that `SELECT count(*) FROM
+-- public_bibliography` exceeds Supabase's default 3-second anon
+-- statement_timeout. The current `IS NULL OR ... IN (...)` form below is
+-- equivalent and "sargable" — the planner maps each branch to an index
+-- lookup on the index defined in 02b_quality_passes_migration.sql.
+--
+-- The same principle applies to the partial index predicate at the bottom of
+-- this file; both have been written in the index-friendly form.
 
 -- ────────────────────────────────────────────────────────────────────────
 -- public_bibliography view: the public projection of bibliography_records
 -- ────────────────────────────────────────────────────────────────────────
-CREATE OR REPLACE VIEW public_bibliography AS
+-- Use DROP + CREATE rather than CREATE OR REPLACE. CREATE OR REPLACE VIEW
+-- enforces a "columns may only be added at the end" rule and errors with
+-- 42P16 ("cannot drop columns from view") if the column list changes order
+-- or shape. DROP + CREATE has no such restriction and is therefore safer
+-- when the view definition evolves over time.
+DROP VIEW IF EXISTS public_bibliography;
+
+CREATE VIEW public_bibliography AS
 SELECT
   record_id,
   canonical_doi          AS doi,
@@ -46,11 +73,16 @@ SELECT
   first_seen_at,
   last_harvested_at
 FROM bibliography_records
--- Exclude records the OpenAlex post-filter dropped as search-recall noise.
--- Editorial overrides (tnbc_relevance_decision = 'keep_manual') are included.
-WHERE COALESCE(tnbc_relevance_decision, 'trusted_source') IN (
-  'trusted_source', 'keep_strong', 'keep_moderate', 'keep_manual'
-);
+-- Index-friendly version of the original COALESCE form (see header note).
+-- Both branches map to lookups on idx_records_relevance_decision; the OR
+-- is necessary because tnbc_relevance_decision = NULL never returns TRUE
+-- (NULL comparisons are unknown), so the trusted-source seeds need the
+-- explicit IS NULL branch.
+WHERE
+  tnbc_relevance_decision IS NULL
+  OR tnbc_relevance_decision IN (
+    'trusted_source', 'keep_strong', 'keep_moderate', 'keep_manual'
+  );
 
 -- Comment for the auto-generated OpenAPI spec
 COMMENT ON VIEW public_bibliography IS
@@ -72,6 +104,24 @@ REVOKE ALL ON bibliography_records FROM anon;
 REVOKE ALL ON raw_snapshots         FROM anon;
 REVOKE ALL ON harvest_runs          FROM anon;
 REVOKE ALL ON dedup_decisions       FROM anon;
+
+-- ────────────────────────────────────────────────────────────────────────
+-- Statement timeout
+-- ────────────────────────────────────────────────────────────────────────
+-- Supabase defaults the anon role to a 3-second statement_timeout, which
+-- is tight for any aggregate over a growing table. `SELECT count(*) FROM
+-- public_bibliography` with `Prefer: count=exact` hits this ceiling once
+-- the table is more than a few thousand rows because count(*) inherently
+-- needs to touch every row that passes the WHERE clause — no index can
+-- short-circuit that. Raise to 15 seconds for the anon role only; the
+-- service-role used by the harvest pipeline keeps its own (much higher)
+-- default.
+--
+-- The website should still prefer `Prefer: count=estimated` for any
+-- "how many records?" surface (instant, ±a few percent); this raise
+-- exists so ad-hoc verification and admin queries don't 500 on the
+-- exact-count path.
+ALTER ROLE anon SET statement_timeout = '15s';
 
 -- ────────────────────────────────────────────────────────────────────────
 -- Row Level Security
@@ -111,7 +161,15 @@ COMMENT ON COLUMN public_bibliography.retraction_status IS
 -- ────────────────────────────────────────────────────────────────────────
 -- The base schema already indexes pmid, canonical_doi, publication_year, tier.
 -- Add a partial index for the common 'recent + cited' query pattern.
-CREATE INDEX IF NOT EXISTS idx_records_recent_cited
+--
+-- The predicate is the index-friendly equivalent of the original
+-- `COALESCE(tnbc_relevance_decision, 'trusted_source') != 'drop'` form. The
+-- planner can only use a partial index when the query's WHERE clause
+-- matches (or proves implies) the index's predicate; writing both in the
+-- same sargable IS NULL/OR form makes the match explicit and avoids
+-- relying on the planner's proof system.
+DROP INDEX IF EXISTS idx_records_recent_cited;
+CREATE INDEX idx_records_recent_cited
   ON bibliography_records (publication_year DESC, citation_count DESC NULLS LAST)
   WHERE retraction_status = 'active'
-    AND COALESCE(tnbc_relevance_decision, 'trusted_source') != 'drop';
+    AND (tnbc_relevance_decision IS NULL OR tnbc_relevance_decision != 'drop');
