@@ -1,19 +1,24 @@
-# Runbook — Public REST API via Supabase + Cloudflare DNS
+# Runbook — Public REST API via Supabase Custom Domain + Cloudflare DNS
 
-Supabase exposes PostgREST automatically from its managed Postgres. We configure a public read-only role and view inside Supabase, then point `api.tnbc.info` at the Supabase API URL via Cloudflare DNS proxy. There is no PostgREST process to host and no separate API server to maintain.
+Supabase exposes PostgREST automatically from its managed Postgres. We surface it under our own branded hostname `api.tnbc.info` using Supabase's Custom Domain feature (Pro tier). Cloudflare hosts the DNS record. There is no PostgREST process to host and no separate API server to maintain.
+
+> **Why Custom Domain rather than a plain Cloudflare CNAME?**
+> The earlier version of this runbook described pointing `api.tnbc.info` at `<project-ref>.supabase.co` with the Cloudflare proxy turned on (orange cloud). That configuration triggers Cloudflare **error 1014 ("CNAME cross-user banned")** because Supabase's hostnames sit behind a different Cloudflare account and the cross-account proxy isn't authorized. Supabase Custom Domain solves this cleanly: Supabase issues a TLS cert for `api.tnbc.info` itself and gives us a CNAME target that *is* authorized for cross-account proxying.
 
 ## Architecture
+
+Recommended configuration during closed beta (DNS-only, grey cloud):
 
 ```
         ┌─────────────────────────────────────┐
         │  api.tnbc.info                      │
-        │  (Cloudflare DNS + edge cache       │
-        │   + rate limit + WAF)               │
+        │  Cloudflare DNS only (grey cloud)   │
         └─────────────────┬───────────────────┘
-                          │  CNAME proxied (orange cloud)
+                          │  CNAME, not proxied
                           ▼
         ┌─────────────────────────────────────┐
-        │  <project-ref>.supabase.co          │
+        │  Supabase Custom Domain edge        │
+        │  TLS cert: api.tnbc.info            │
         │  PostgREST auto-served by Supabase  │
         └─────────────────┬───────────────────┘
                           │ enforces SELECT on api_anon role
@@ -24,16 +29,32 @@ Supabase exposes PostgREST automatically from its managed Postgres. We configure
         └─────────────────────────────────────┘
 ```
 
-Cloudflare gives us:
-- TLS termination at `api.tnbc.info` (Supabase's own URL is also TLS but the friendly hostname matters for permalink stability and DNS branding).
-- DDoS protection.
-- Edge cache (so the same query doesn't hit Supabase repeatedly).
-- Rate limiting at the IP level.
+Optional configuration for public launch (Cloudflare proxied, orange cloud — requires Cloudflare Pro for rate limiting and SSL/TLS mode set to Full (strict)):
 
-Supabase gives us:
+```
+        ┌─────────────────────────────────────┐
+        │  api.tnbc.info                      │
+        │  Cloudflare proxied (orange cloud)  │
+        │  + edge cache + WAF + rate limit    │
+        │  SSL/TLS mode: Full (strict)        │
+        └─────────────────┬───────────────────┘
+                          │ HTTPS (CF re-validates Supabase cert)
+                          ▼
+        Supabase Custom Domain edge → Supabase Postgres
+```
+
+The Supabase layer gives us in both configurations:
 - Managed PostgREST, generated automatically from the schema.
+- TLS termination at `api.tnbc.info`.
 - Built-in OpenAPI spec at the project's API URL.
-- API key infrastructure (anon key, service-role key) if we want to require keys later.
+- API key infrastructure (anon key, service-role key).
+
+Cloudflare gives us only in orange-cloud mode:
+- Edge cache (so the same query doesn't hit Supabase repeatedly).
+- WAF and rate limiting at the IP level (Pro tier).
+- DDoS mitigation.
+
+In grey-cloud mode, Cloudflare is doing DNS resolution only; requests bypass the Cloudflare edge entirely and terminate at Supabase.
 
 ## Step 1 — Apply the public API schema
 
@@ -49,7 +70,7 @@ Verify in **Authentication → Roles**: `api_anon` role exists with `SELECT` on 
 
 ## Step 2 — Test the Supabase-native URL
 
-Supabase exposes the REST API at `https://<project-ref>.supabase.co/rest/v1/`. Without a friendly hostname yet:
+Before adding the custom domain, sanity-check that the API works through Supabase's built-in URL. Supabase exposes the REST API at `https://<project-ref>.supabase.co/rest/v1/`:
 
 ```bash
 # The anon JWT key is in Supabase: Settings → API → anon (public) key
@@ -57,67 +78,109 @@ ANON_KEY="<paste-from-supabase-dashboard>"
 
 curl "https://<project-ref>.supabase.co/rest/v1/public_bibliography?select=count" \
   -H "apikey: ${ANON_KEY}" \
-  -H "Authorization: Bearer ${ANON_KEY}"
+  -H "Authorization: Bearer ${ANON_KEY}" \
+  -H "Prefer: count=exact"
 ```
 
-Expected: a JSON response with the row count. If you get a 401, the anon key is wrong; if you get a 404, the view wasn't created.
+Expected: a small JSON body, plus a `content-range` response header showing the total row count. If you get a 401, the anon key is wrong; if you get a 404, the view wasn't created.
 
-## Step 3 — Add the friendly hostname via Cloudflare
+## Step 3 — Provision the Supabase Custom Domain
 
-In the Cloudflare dashboard for the `tnbc.info` zone:
+**Requires Supabase Pro (~$25/month).** Custom domains aren't available on the Free tier.
 
-1. **DNS → Add record**.
-2. Type: `CNAME`.
-3. Name: `api`.
-4. Target: `<project-ref>.supabase.co`.
-5. Proxy status: **Proxied** (orange cloud).
-6. TTL: Auto.
+In the Supabase dashboard for the project:
 
-After ~30 seconds DNS propagates. Test:
+1. **Settings → Custom Domains**.
+2. Click **Add custom domain**, enter `api.tnbc.info`, and submit.
+3. Supabase displays a CNAME verification target — something like `<custom-id>.<project-ref>.supabase.co` or `<custom-id>.cname.supabase.com`. Copy this exact value.
+
+Then in the Cloudflare dashboard for the `tnbc.info` zone:
+
+4. **DNS → Records → Add record**.
+5. Type: `CNAME`.
+6. Name: `api`.
+7. Target: paste the Supabase-provided CNAME target from step 3.
+8. Proxy status: **DNS only** (grey cloud). This is required for the initial verification — Supabase needs to see the CNAME resolve directly to their edge to issue the TLS cert.
+9. TTL: Auto.
+
+Back in Supabase:
+
+10. Click **Verify**. Supabase resolves the CNAME, confirms the chain, and issues a Let's Encrypt cert for `api.tnbc.info`. This usually completes within 1–2 minutes; refresh the page if it doesn't update immediately.
+
+Verify the custom domain end-to-end:
 
 ```bash
 curl "https://api.tnbc.info/rest/v1/public_bibliography?select=count" \
-  -H "apikey: ${ANON_KEY}"
+  -H "apikey: ${ANON_KEY}" \
+  -H "Prefer: count=exact"
 ```
 
-Same response as before, now via the friendly hostname.
+Same JSON response as Step 2, now served via the branded hostname with a cert issued for `api.tnbc.info`. If you see a TLS error, DNS propagation may not be complete yet (give it another minute); if you see Cloudflare error 1014, the CNAME target is wrong — confirm it's pointed at the Supabase custom-domain target and not at the bare `<project-ref>.supabase.co`.
 
-## Step 4 — Cloudflare edge configuration
+## Step 4 — Cloudflare edge configuration (optional, orange-cloud mode only)
 
-In **Rules → Configuration Rules** (or **Page Rules** on older accounts), add:
+During closed beta, leaving the CNAME as DNS-only (grey cloud) is the simpler and recommended path. Everything in this section is only relevant if you later flip the record to **Proxied** (orange cloud) for edge caching, WAF, and rate limiting.
+
+### Prerequisite: SSL/TLS mode
+
+Before turning the cloud orange, set Cloudflare's SSL/TLS mode for the `tnbc.info` zone to **Full (strict)**:
+
+**SSL/TLS → Overview → Edit → Full (strict)**
+
+This tells Cloudflare to validate the origin certificate (the one Supabase issued for `api.tnbc.info`) end-to-end. Without it you risk certificate-mismatch errors when Cloudflare terminates TLS at its edge and re-establishes TLS to Supabase.
 
 ### Caching
 
-- **If URL path contains** `/rest/v1/public_bibliography` **AND request method is** `GET`
-- **Then** set Edge Cache TTL to 5 minutes (300 seconds).
-- Bypass cache on querystring change is the default.
+Cache settings live under their own rules type (not under Configuration Rules — that controls zone-level toggles like SSL mode). Navigate to:
+
+**Caching → Cache Rules → Create rule**
+
+(Equivalent path: **Rules → Cache Rules** in some account layouts.)
+
+- **Rule name**: `Cache PostgREST GETs`
+- **If…**: Hostname *equals* `api.tnbc.info` AND URI Path *contains* `/rest/v1/public_bibliography`
+- **Then…**:
+  - Eligible for cache: ✓
+  - Edge TTL: **Override origin** (also labelled "Ignore cache-control header and use this TTL")
+  - Override TTL: **5 minutes** (300 seconds)
+  - Browser TTL: leave at default ("Respect origin")
+- Save and deploy.
+
+Verify with two `curl -I` requests in quick succession; the second should show `cf-cache-status: HIT` in the response headers.
 
 Rationale: the bibliography updates weekly; serving the same query from edge cache for up to 5 minutes is harmless and dramatically reduces hits to Supabase.
 
 ### Rate limiting
 
-In **Security → WAF → Rate limiting rules**:
+**Requires Cloudflare Pro (~$25/month).** The Free plan no longer includes dedicated WAF Rate Limiting Rules (the 10k-requests/month legacy feature was deprecated). Free-tier alternatives:
 
-- **Match**: hostname equals `api.tnbc.info` AND path matches `/rest/v1/*`.
-- **Limit**: 60 requests per IP per minute, 1,000 requests per IP per hour.
-- **Action**: Block with HTTP 429 and `Retry-After: 60`.
+1. **Defer until you upgrade to Pro at public launch.** During closed-beta the site is behind Cloudflare Access; nothing is exposed to abuse. This is the recommended path.
+2. **Implement rate limiting in a Cloudflare Worker** (free tier covers 100k requests/day). About 30 lines of TypeScript intercepting requests to `api.tnbc.info`, tracking per-IP counts in Workers KV, returning HTTP 429 when limits are exceeded.
+3. **Rely on Supabase's connection-pool ceiling** as soft rate-limiting. Abusive clients get queued or 503'd at the database level. Imperfect but provides a backstop.
 
-Bumps the limits as needed for known good consumers (the website's own JS issues at most ~10 requests per page load; well below the limit).
+On **Cloudflare Pro**, the path is **Security → Security rules → Rate limiting rules**:
 
-### Hide the anon key (optional, recommended)
+- **Rule name**: `API rate limit`
+- **If…**: Hostname *equals* `api.tnbc.info` AND URI Path *starts with* `/rest/v1/`
+- **When rate exceeds**: 60 requests in 1 minute (counting by IP address)
+- **Action**: Block, duration 1 minute, HTTP 429 with `Retry-After: 60`
+
+(The website's own JS issues at most ~10 requests per page load, well below the limit.)
+
+### Hide the anon key (optional, recommended before public launch)
 
 The Supabase anon key is intended to be public-visible, but exposing it at all means a malicious user could send unlimited queries from anywhere. To enforce that all access goes through Cloudflare (and is thus subject to rate limiting):
 
 1. In Supabase **Settings → API**, you can't disable the anon key entirely, but you can rotate it.
 2. Set up a small Cloudflare Worker that injects the anon key from a Cloudflare secret before forwarding to Supabase. Then site JS only knows about `api.tnbc.info` and never sees the raw anon key.
 
-This is a security hardening optional for the closed-beta phase; recommended before public launch. Documented as a separate task in the Phase 3 hardening list.
+This is a security hardening optional for the closed-beta phase; recommended before public launch. Documented as a separate task in `PRELAUNCH-CHECKLIST.md`.
 
 ## Step 5 — Bulk-export endpoints on R2
 
 For users who want the full corpus rather than paginated API calls, the GitHub Actions harvest workflow uploads the full export files to a Cloudflare R2 bucket. Surface them at `exports.tnbc.info`:
 
-1. **DNS → Add record**: CNAME `exports.tnbc.info` → R2 bucket public URL, proxied.
+1. **DNS → Add record**: CNAME `exports.tnbc.info` → R2 bucket public URL, proxied (orange cloud works fine for R2; the 1014 issue doesn't apply because R2 is on the same Cloudflare account as the `tnbc.info` zone).
 2. R2 bucket: `tnbc-atlas-exports`, public-read on the `/latest/` prefix.
 3. Files refresh nightly via the harvest workflow's final step.
 
@@ -151,11 +214,11 @@ Document this generation step on the website's `/research/api/` page so research
 
 ## Step 7 — Monitoring
 
-Three layers:
+Three layers (the third only applies in orange-cloud mode):
 
-1. **Supabase dashboard → API → Logs**: per-request log of all PostgREST traffic. Watch for 5xx rates and slow queries.
-2. **Cloudflare Analytics → Traffic**: edge-level request volume, cache hit rate, country distribution.
-3. **External uptime monitor**: UptimeRobot or similar, GETting `https://api.tnbc.info/rest/v1/public_bibliography?limit=1&apikey=...` every 60 seconds. Alert on 5xx or no-response.
+1. **Supabase dashboard → API → Logs**: per-request log of all PostgREST traffic. Watch for 5xx rates and slow queries. Works in both grey- and orange-cloud modes.
+2. **External uptime monitor**: UptimeRobot or similar, GETting `https://api.tnbc.info/rest/v1/public_bibliography?limit=1&apikey=...` every 60 seconds. Alert on 5xx or no-response. Works in both modes.
+3. **Cloudflare Analytics → Traffic**: edge-level request volume, cache hit rate, country distribution. Only useful when the CNAME is proxied (orange cloud); in DNS-only mode the request never touches Cloudflare's edge so there's nothing to measure.
 
 ## Querying examples
 
@@ -183,24 +246,33 @@ curl "https://api.tnbc.info/rest/v1/public_bibliography?select=count" \
 
 ## Cost
 
-- **Supabase**: PostgREST is included in all tiers, including free.
-- **Cloudflare**: DNS, proxying, edge cache, rate limiting all on the free plan.
+- **Supabase Pro**: ~$25/month. Required for the Custom Domain feature; also unlocks daily backups with 7-day point-in-time recovery, larger database size (8 GB), and the no-week-of-inactivity-pause guarantee.
+- **Cloudflare Free**: DNS, R2 storage and egress, and grey-cloud DNS-only for `api.tnbc.info` are all $0.
+- **Cloudflare Pro (optional, ~$25/month)**: only needed if you want orange-cloud proxying with edge cache, WAF, and Rate Limiting Rules on `api.tnbc.info`. Decision point lives in `PRELAUNCH-CHECKLIST.md`.
 - **R2 storage**: 10 GB free; bibliography exports total < 100 MB, well within free tier.
 - **R2 egress**: 1 million reads/month free, which is far more than expected use.
 
-Net additional cost over the website: **$0**.
+Net cost at closed-beta launch: **~$25/month** (Supabase Pro only). At public launch with full edge protection: **~$50/month** (Supabase Pro + Cloudflare Pro).
 
 ## Checklist
 
 - [ ] `sql/03_supabase_public_api.sql` applied to the Supabase project
 - [ ] `public_bibliography` view visible in Supabase Table Editor
 - [ ] `api_anon` role created with `SELECT` only on the public view
-- [ ] DNS CNAME `api.tnbc.info` → `<project-ref>.supabase.co` proxied through Cloudflare
-- [ ] Edge cache rule for `/rest/v1/public_bibliography` (5-min TTL)
-- [ ] Rate-limit rule on `/rest/v1/*` (60/min/IP, 1000/hour/IP)
+- [ ] Supabase project upgraded to Pro (required for Custom Domain)
+- [ ] Custom domain `api.tnbc.info` added in Supabase **Settings → Custom Domains** and verified
+- [ ] DNS CNAME `api.tnbc.info` → Supabase-provided custom-domain target, **DNS only** (grey cloud) at Cloudflare
+- [ ] `curl` against `https://api.tnbc.info/rest/v1/public_bibliography?select=count` returns JSON with no TLS or 1014 error
 - [ ] R2 bucket `tnbc-atlas-exports` created with public-read on `/latest/`
-- [ ] DNS CNAME `exports.tnbc.info` → R2 public URL
+- [ ] DNS CNAME `exports.tnbc.info` → R2 public URL (proxied — orange cloud OK here)
 - [ ] GitHub Actions harvest workflow successfully uploads to R2 on completion
 - [ ] OpenAPI spec available at `https://api.tnbc.info/rest/v1/`
 - [ ] Sample queries documented on the website's `/research/api/` page
 - [ ] External uptime monitor configured with alerting destination
+
+Items below are deferred to `PRELAUNCH-CHECKLIST.md` as they require Cloudflare Pro and/or a public-launch posture:
+
+- [ ] (Pre-launch) Flip `api.tnbc.info` to proxied (orange cloud) with SSL/TLS mode Full (strict)
+- [ ] (Pre-launch) Edge cache rule for `/rest/v1/public_bibliography` (5-min TTL)
+- [ ] (Pre-launch) Rate-limit rule on `/rest/v1/*` (60/min/IP)
+- [ ] (Pre-launch) Cloudflare Worker proxy layer to hide the anon key from client JS
