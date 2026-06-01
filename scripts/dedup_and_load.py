@@ -32,9 +32,28 @@ sys.path.insert(0, str(Path(__file__).parent))
 from common import SNAPSHOTS, db, log
 
 
+def all_snapshots(source: str) -> list[Path]:
+    """Return every per-source snapshot, sorted oldest-first by modification time.
+
+    The pilot workflow only ever wrote one snapshot per source, so an earlier
+    version of this module returned a single 'latest_snapshot' — but for the
+    year-by-year backfill workflow, each year produces a new per-source
+    snapshot file and all of them need to be deduped together. The 'biggest
+    file wins' heuristic in the prior implementation silently caused every
+    backfill year to re-dedup the largest (pilot) snapshot and load nothing
+    new. See logs/backfill_*.log if you suspect a recurrence.
+    """
+    return sorted(
+        (SNAPSHOTS / source).glob(f"{source}_*.jsonl"),
+        key=lambda p: p.stat().st_mtime,
+    )
+
+
+# Kept for backward compatibility with any callers that still want
+# the single-snapshot semantic; new code should prefer all_snapshots().
 def latest_snapshot(source: str) -> Path | None:
-    paths = sorted((SNAPSHOTS / source).glob(f"{source}_*.jsonl"), key=lambda p: p.stat().st_size, reverse=True)
-    return paths[0] if paths else None
+    paths = all_snapshots(source)
+    return paths[-1] if paths else None
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -96,19 +115,24 @@ def merge(canonical: dict, other: dict, source_label: str) -> dict:
 
 def main():
     log("=" * 60, "dedup")
-    log("Phase 1 dedup + load", "dedup")
+    log("Phase 1 dedup + load (incremental upsert)", "dedup")
+    # Read every per-source snapshot, concatenate, then let the in-memory
+    # dedup engine collapse cross-snapshot duplicates. The downstream INSERT
+    # uses ON CONFLICT (canonical_doi) DO NOTHING so already-loaded records
+    # are safely re-processed without disturbing enrichment columns.
     sources = {
-        "pubmed": latest_snapshot("pubmed"),
-        "europepmc": latest_snapshot("europepmc"),
-        "openalex": latest_snapshot("openalex"),
+        "pubmed":    all_snapshots("pubmed"),
+        "europepmc": all_snapshots("europepmc"),
+        "openalex":  all_snapshots("openalex"),
     }
-    raw = {}
-    for src, path in sources.items():
-        if path:
-            raw[src] = load_jsonl(path)
-            log(f"loaded {len(raw[src])} from {src} ({path.name})", "dedup")
-        else:
-            raw[src] = []
+    raw: dict[str, list[dict]] = {}
+    for src, paths in sources.items():
+        raw[src] = []
+        for path in paths:
+            records = load_jsonl(path)
+            raw[src].extend(records)
+            log(f"loaded {len(records):>6} from {src}/{path.name}", "dedup")
+        log(f"  → {src} total: {len(raw[src])} records across {len(paths)} snapshot(s)", "dedup")
 
     # Build dedup index over all records
     by_doi: dict[str, dict] = {}
@@ -186,34 +210,79 @@ def main():
     for k in sorted(stats):
         log(f"  {k}: {stats[k]}", "dedup")
 
-    # Load into Postgres
+    # Load into Postgres via COPY-into-temp + UPSERT.
+    #
+    # IMPORTANT — two distinct things to know about this load path:
+    #
+    # 1. Do NOT TRUNCATE the target table. An older version of this script
+    #    TRUNCATEd before loading, which (a) made every run a full replace
+    #    rather than an incremental upsert, and (b) wiped all enrichment
+    #    columns (Crossref / Unpaywall / retraction status / topic tags /
+    #    tier / tnbc_relevance_decision) populated by separate scripts.
+    #    The ON CONFLICT (canonical_doi) DO NOTHING clause in the UPSERT
+    #    below is sufficient for idempotency; already-loaded records are
+    #    silently skipped, preserving their enrichment.
+    #
+    # 2. Do NOT row-by-row INSERT through the Supabase pooler. The pilot
+    #    workflow's 14k-record single-INSERT-per-record loop took ~12 min
+    #    over LAN and reliably dropped the connection partway when run
+    #    over Supabase's Session pooler with 30k+ records. The COPY-into-
+    #    temp + INSERT...SELECT...ON CONFLICT pattern below sends one
+    #    bulk stream + one statement, eliminating per-record round-trips
+    #    and the connection-drop failure mode. Same observable semantics.
+    log(f"COPY-ing {len(canonical):,} canonical records into staging…", "dedup")
     with db() as conn:
         cur = conn.cursor()
-        cur.execute("TRUNCATE bibliography_records CASCADE;")
-        cur.execute("TRUNCATE dedup_decisions;")
-        n_loaded = 0
-        for r in canonical:
-            authors = r.get("authors") or []
-            cur.execute(
-                """
-                INSERT INTO bibliography_records (
-                    canonical_doi, pmid, pmcid, openalex_id,
-                    title, abstract, authors, journal, journal_issn,
-                    publication_date, publication_year, publication_type,
-                    mesh_terms, keywords, language, countries,
-                    funding_sources, oa_status, oa_url,
-                    citation_count, source_provenance
-                ) VALUES (
-                    %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s,
-                    %s, %s, %s,
-                    %s, %s, %s, %s,
-                    %s, %s, %s,
-                    %s, %s
-                )
-                ON CONFLICT (canonical_doi) DO NOTHING
-                """,
-                (
+
+        # 2a. Staging table — mirror the column types of bibliography_records.
+        #     DATE column stored as TEXT here so invalid date strings don't
+        #     break the COPY; we cast + null-out in the SELECT below.
+        cur.execute("""
+            CREATE TEMP TABLE staging_records (
+                canonical_doi     TEXT,
+                pmid              TEXT,
+                pmcid             TEXT,
+                openalex_id       TEXT,
+                title             TEXT,
+                abstract          TEXT,
+                authors           JSONB,
+                journal           TEXT,
+                journal_issn      TEXT,
+                publication_date  TEXT,
+                publication_year  INT,
+                publication_type  TEXT[],
+                mesh_terms        TEXT[],
+                keywords          TEXT[],
+                language          TEXT,
+                countries         TEXT[],
+                funding_sources   JSONB,
+                oa_status         TEXT,
+                oa_url            TEXT,
+                citation_count    INT,
+                source_provenance JSONB
+            ) ON COMMIT DROP
+        """)
+
+        # 2b. Stream all records via one COPY. psycopg's Jsonb adapter
+        #     handles dict → JSONB serialization; array adapters handle
+        #     Python list → TEXT[] formatting.
+        with cur.copy("""
+            COPY staging_records (
+                canonical_doi, pmid, pmcid, openalex_id,
+                title, abstract, authors, journal, journal_issn,
+                publication_date, publication_year, publication_type,
+                mesh_terms, keywords, language, countries,
+                funding_sources, oa_status, oa_url,
+                citation_count, source_provenance
+            ) FROM STDIN
+        """) as copy:
+            for r in canonical:
+                authors = r.get("authors") or []
+                pub_date = r.get("publication_date")
+                # Drop garbage-short date strings; let valid YYYY-MM-DD through.
+                if pub_date and len(str(pub_date)) < 10:
+                    pub_date = None
+                copy.write_row((
                     r.get("doi"),
                     r.get("pmid"),
                     r.get("pmcid"),
@@ -223,7 +292,7 @@ def main():
                     Jsonb(authors),
                     r.get("journal"),
                     r.get("journal_issn"),
-                    r.get("publication_date") if r.get("publication_date") and len(str(r.get("publication_date"))) >= 10 else None,
+                    pub_date,
                     r.get("publication_year"),
                     r.get("publication_type") or [],
                     r.get("mesh_terms") or [],
@@ -235,17 +304,46 @@ def main():
                     r.get("oa_url"),
                     r.get("citation_count"),
                     Jsonb(r.get("source_provenance") or {}),
-                ),
+                ))
+
+        # 2c. Upsert from staging into the main table in a single statement.
+        #     ON CONFLICT (canonical_doi) DO NOTHING preserves enrichment on
+        #     records that already exist. publication_date is cast back to
+        #     DATE here, with invalid strings falling through to NULL.
+        log("UPSERT-ing from staging into bibliography_records…", "dedup")
+        cur.execute("""
+            INSERT INTO bibliography_records (
+                canonical_doi, pmid, pmcid, openalex_id,
+                title, abstract, authors, journal, journal_issn,
+                publication_date, publication_year, publication_type,
+                mesh_terms, keywords, language, countries,
+                funding_sources, oa_status, oa_url,
+                citation_count, source_provenance
             )
-            n_loaded += 1
-        log(f"loaded {n_loaded} into Postgres", "dedup")
+            SELECT
+                canonical_doi, pmid, pmcid, openalex_id,
+                title, abstract, authors, journal, journal_issn,
+                CASE WHEN publication_date ~ '^\d{4}-\d{2}-\d{2}'
+                     THEN publication_date::date
+                     ELSE NULL END,
+                publication_year, publication_type,
+                mesh_terms, keywords, language, countries,
+                funding_sources, oa_status, oa_url,
+                citation_count, source_provenance
+            FROM staging_records
+            ON CONFLICT (canonical_doi) DO NOTHING
+        """)
+        n_inserted = cur.rowcount
+        n_skipped = len(canonical) - n_inserted
+        log(f"INSERT-ed {n_inserted:,} new records; "
+            f"skipped {n_skipped:,} already-present (ON CONFLICT)", "dedup")
 
     # Summary
     with db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) AS n FROM bibliography_records;")
         result = cur.fetchone()
-        log(f"DB row count: {result['n']}", "dedup")
+        log(f"DB row count: {result['n']:,}", "dedup")
 
 
 if __name__ == "__main__":
