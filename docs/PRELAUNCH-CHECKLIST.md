@@ -78,7 +78,7 @@ These items mostly require flipping `api.tnbc.info` from DNS-only (grey cloud) t
 ## Editorial and content
 
 - [ ] **Editorial board constituted and named on `/about/`.**
-  Replace the "internal-demo" notice in the funding section once members are confirmed.
+  The entire Editorial board section (heading + amber notice + roles list) was commented out on 2026-06-02 with the rationale that listing structure-only roles without named individuals signals incompleteness. Restore by un-commenting the `{/* ... */}` block in `src/pages/about.astro` (between the "Project structure" and "Editorial standards" sections) once named individuals + signed COI disclosures are on file. Replace the amber "Internal-demo phase" notice with the names + roles + photos.
 
 - [ ] **First-round editorial review of tier-1 list.**
   PI signs off on the 60-entry tier-1 seed before any record is promoted to `tier=1` in production.
