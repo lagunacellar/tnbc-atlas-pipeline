@@ -35,11 +35,28 @@ from common import (
 
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
-# Pilot query — narrower than the full Phase 1 query to keep the smoke run honest
+# Query covering three eras of nomenclature for what is now called TNBC.
+# Modern era (2005+): "triple-negative breast cancer" + variants.
+# Transitional era (2000-2007): "basal-like breast cancer" — the molecular-subtype
+#   term that dominated before TNBC became standard nomenclature.
+# Pre-modern era (pre-2000): "ER-negative breast cancer" + variants — the only
+#   nomenclature available when HER2 testing wasn't routine. Anchored on the
+#   "breast cancer" qualifier so we don't pull in unrelated ER-negative cancer
+#   literature; the OpenAlex post-filter scrubs any OpenAlex-only records that
+#   don't actually concern TNBC biology.
 QUERY = (
-    '("triple-negative breast cancer"[Title/Abstract] '
+    '('
+    '"triple-negative breast cancer"[Title/Abstract] '
     'OR "triple negative breast cancer"[Title/Abstract] '
-    'OR "TNBC"[Title/Abstract])'
+    'OR "TNBC"[Title/Abstract] '
+    'OR "basal-like breast cancer"[Title/Abstract] '
+    'OR "basal like breast cancer"[Title/Abstract] '
+    'OR "basal-like carcinoma"[Title/Abstract] '
+    'OR "ER-negative breast cancer"[Title/Abstract] '
+    'OR "estrogen receptor-negative breast cancer"[Title/Abstract] '
+    'OR "estrogen receptor negative breast cancer"[Title/Abstract] '
+    'OR "receptor-negative breast cancer"[Title/Abstract]'
+    ')'
 )
 
 

@@ -46,9 +46,24 @@ def search(start: str, end: str, out_fh=None, max_records: int | None = None,
         cursor = cursor_file.read_text().strip() or "*"
         log(f"resume cursor loaded: {cursor[:30]}...", "openalex")
     per_page = 200
+    # Three-era query — see harvest_pubmed.py QUERY for the rationale.
+    # OpenAlex's title_and_abstract.search uses pipe-separated phrases for
+    # OR semantics; the post-filter (scripts/filter_openalex_only.py)
+    # scrubs OpenAlex-only records that don't pass the relevance scoring,
+    # which absorbs the noise from broader pre-2005-era terms.
     filters = (
-        f"title_and_abstract.search:\"triple-negative breast cancer\"|\"triple negative breast cancer\"|TNBC,"
-        f"from_publication_date:{start},to_publication_date:{end}"
+        "title_and_abstract.search:"
+        '"triple-negative breast cancer"'
+        '|"triple negative breast cancer"'
+        "|TNBC"
+        '|"basal-like breast cancer"'
+        '|"basal like breast cancer"'
+        '|"basal-like carcinoma"'
+        '|"ER-negative breast cancer"'
+        '|"estrogen receptor-negative breast cancer"'
+        '|"estrogen receptor negative breast cancer"'
+        '|"receptor-negative breast cancer"'
+        f",from_publication_date:{start},to_publication_date:{end}"
     )
     while True:
         rl.wait()

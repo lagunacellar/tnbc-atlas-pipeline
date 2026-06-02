@@ -31,12 +31,32 @@ from common import (
 
 EPMC = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 
+# Three-era query — see harvest_pubmed.py QUERY for the rationale.
+# Europe PMC supports phrase search via quotes and field-prefix scoping
+# (TITLE: / ABSTRACT:); the parenthesized OR group covers all variant
+# terminology, then is AND-restricted to the date window.
 QUERY_TEMPLATE = (
-    '(TITLE:"triple-negative breast cancer" '
+    '('
+    'TITLE:"triple-negative breast cancer" '
     'OR TITLE:"triple negative breast cancer" '
     'OR TITLE:"TNBC" '
+    'OR TITLE:"basal-like breast cancer" '
+    'OR TITLE:"basal like breast cancer" '
+    'OR TITLE:"basal-like carcinoma" '
+    'OR TITLE:"ER-negative breast cancer" '
+    'OR TITLE:"estrogen receptor-negative breast cancer" '
+    'OR TITLE:"estrogen receptor negative breast cancer" '
+    'OR TITLE:"receptor-negative breast cancer" '
     'OR ABSTRACT:"triple-negative breast cancer" '
-    'OR ABSTRACT:"triple negative breast cancer") '
+    'OR ABSTRACT:"triple negative breast cancer" '
+    'OR ABSTRACT:"basal-like breast cancer" '
+    'OR ABSTRACT:"basal like breast cancer" '
+    'OR ABSTRACT:"basal-like carcinoma" '
+    'OR ABSTRACT:"ER-negative breast cancer" '
+    'OR ABSTRACT:"estrogen receptor-negative breast cancer" '
+    'OR ABSTRACT:"estrogen receptor negative breast cancer" '
+    'OR ABSTRACT:"receptor-negative breast cancer"'
+    ') '
     'AND (FIRST_PDATE:[{start} TO {end}])'
 )
 

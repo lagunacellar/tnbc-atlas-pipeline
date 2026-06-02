@@ -61,6 +61,12 @@ These items mostly require flipping `api.tnbc.info` from DNS-only (grey cloud) t
 - [ ] **Remove the "Internal demo — not for public distribution" badge.**
   Edit `src/components/Footer.astro` and remove the amber span at the bottom.
 
+- [ ] **Restore Public API / exports navigation.** Temporarily hidden 2026-06-02 while the API hardening items above are pending. To restore:
+  - Uncomment the Public API card in `src/pages/research/index.astro`.
+  - Uncomment the Public API link in `src/components/Footer.astro`.
+  - Replace the "Not yet released" notice on `src/pages/research/api.astro` with the actual API documentation (querying examples, OpenAPI spec link, bulk-export URLs).
+  - Restore affirmative wording in `src/pages/about.astro` and `src/pages/accessibility.astro` referring to bulk exports as available.
+
 - [ ] **Add `robots.txt` and `sitemap.xml`.**
   Install `@astrojs/sitemap` integration; configure `robots.txt` to allow indexing.
 
