@@ -73,15 +73,46 @@ SELECT
   first_seen_at,
   last_harvested_at
 FROM bibliography_records
--- Index-friendly version of the original COALESCE form (see header note).
--- Both branches map to lookups on idx_records_relevance_decision; the OR
--- is necessary because tnbc_relevance_decision = NULL never returns TRUE
--- (NULL comparisons are unknown), so the trusted-source seeds need the
--- explicit IS NULL branch.
+-- ── Sanitization gates (applied in conjunction, ANDed together) ─────────
+--
+-- (A) Relevance decision: keep records that explicitly passed the relevance
+--     filter, that came from a trusted seed source (NULL = pre-filter), or
+--     that carry an editorial override. Index-friendly form of the original
+--     COALESCE wrapper (see header note for context).
 WHERE
-  tnbc_relevance_decision IS NULL
-  OR tnbc_relevance_decision IN (
-    'trusted_source', 'keep_strong', 'keep_moderate', 'keep_manual'
+  (
+    tnbc_relevance_decision IS NULL
+    OR tnbc_relevance_decision IN (
+      'trusted_source', 'keep_strong', 'keep_moderate', 'keep_manual'
+    )
+  )
+  -- (B) Year window: drops obvious source-database date errors (some PubMed
+  --     records carry 1922 or other pre-1985 years for what are clearly more
+  --     recent publications). Ceiling is current_year + 1 to allow in-press
+  --     / accepted-for-publication records (publication_year ahead of today
+  --     is common for the December-publication / January-issue case).
+  AND (
+    publication_year BETWEEN 1985 AND (extract(year from now())::int + 1)
+    OR publication_year IS NULL  -- a few records lack a clean year; keep them
+  )
+  -- (C) Topic gate: tiered by relevance signal strength.
+  --
+  --     keep_strong (TNBC in title) — TRUSTED, gate bypassed. If a paper
+  --     has TNBC in its title we treat it as TNBC-relevant even if the
+  --     topic-tagger didn't accumulate enough keyword hits for any single
+  --     domain (e.g. editorials, very-short-abstract papers, papers
+  --     covering topics adjacent to the 10-domain taxonomy).
+  --
+  --     keep_moderate / trusted_source / NULL — REQUIRE topic-tag
+  --     confirmation, OR tier assignment, OR editorial manual-keep. The
+  --     relevance signal here is softer (TNBC in abstract, basal-like in
+  --     title, etc.), so the topic-tagger's confirmation acts as the
+  --     precision check that filters out residual broad-query noise.
+  AND (
+    tnbc_relevance_decision = 'keep_strong'
+    OR tnbc_relevance_decision = 'keep_manual'
+    OR tier IS NOT NULL
+    OR (topic_tags IS NOT NULL AND array_length(topic_tags, 1) >= 1)
   );
 
 -- Comment for the auto-generated OpenAPI spec
