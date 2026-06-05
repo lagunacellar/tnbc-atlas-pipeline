@@ -1,22 +1,24 @@
 """TNBC Atlas — regenerate the slim bibliography JSON consumed by the website.
 
-The website's /research/library/ page reads from a single static JSON file
-committed at tnbc_info_site/public/data/bibliography.json. That file uses
-abbreviated field names to keep the client-side download size manageable,
-and excludes long fields (full abstracts, source_provenance, etc.) that
-the search UI doesn't need.
+The website's /research/library/ page fetches a single JSON document via
+JavaScript at runtime. That document uses abbreviated field names to keep
+the client-side download size manageable, and excludes long fields (full
+abstracts, source_provenance, etc.) that the search UI doesn't need.
 
-This script reproduces that exact schema from the live Supabase
-public_bibliography view so the website's library page can be refreshed
-to reflect the current corpus.
+The file lives in Cloudflare R2 at
+  https://exports.tnbc.info/latest/bibliography_slim.json
+because Cloudflare Pages has a 25 MB per-file asset limit and the slim
+corpus exceeds that as of the 1990-2024 backfill. This script writes the
+file into exports/ in the pilot repo; the existing weekly-harvest
+workflow's `aws s3 cp exports/ s3://tnbc-atlas-exports/latest/` step
+uploads it to R2 automatically. For an immediate refresh outside the
+weekly schedule, see the manual R2 upload command in
+RUNBOOK-public-api.md.
 
 Usage:
   python3 scripts/build_site_slim_json.py
-  python3 scripts/build_site_slim_json.py --out /path/to/bibliography.json
-  python3 scripts/build_site_slim_json.py --out ../tnbc_info_site/public/data/bibliography.json
-
-After running, copy or symlink the output into the site repo, then
-commit + push to trigger a Cloudflare Pages rebuild.
+  python3 scripts/build_site_slim_json.py --out exports/bibliography_slim.json
+  python3 scripts/build_site_slim_json.py --out /custom/path/file.json
 
 Schema (per-record, abbreviated to minimize payload):
   t     title
@@ -45,12 +47,15 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import db, log
+from common import EXPORTS, db, log
 
 
-SLIM_DEFAULT_OUT = (
-    Path(__file__).resolve().parents[2] / "tnbc_info_site" / "public" / "data" / "bibliography.json"
-)
+# Default output: the pilot repo's exports/ directory. The existing
+# weekly-harvest workflow's R2-upload step (aws s3 cp exports/ s3://.../latest/)
+# picks up this file automatically, surfacing it at
+# https://exports.tnbc.info/latest/bibliography_slim.json. The website's
+# library page fetches from that R2 URL.
+SLIM_DEFAULT_OUT = EXPORTS / "bibliography_slim.json"
 
 
 def first_author_display(authors: list[dict] | None) -> str | None:
@@ -172,11 +177,14 @@ def main() -> None:
     size_mb = args.out.stat().st_size / 1024 / 1024
     log(f"  wrote {len(out_records):,} records ({size_mb:.1f} MB)", "slim")
 
-    if size_mb > 20:
+    if size_mb > 80:
         log(
-            f"  WARNING: slim JSON is {size_mb:.1f} MB. The site's library page "
-            f"downloads this on every visit; consider switching the page to fetch "
-            f"from api.tnbc.info with pagination if size exceeds ~15 MB.",
+            f"  NOTE: slim JSON is {size_mb:.1f} MB. R2 has no per-file size "
+            f"limit (vs Cloudflare Pages' 25 MB), so storage is fine — but the "
+            f"library page downloads this on every visit. If first-load latency "
+            f"becomes a concern, consider switching the page to a search-index "
+            f"+ API-on-click hybrid (~3 MB index, full record fetched from "
+            f"api.tnbc.info when a row is clicked).",
             "slim",
         )
 
