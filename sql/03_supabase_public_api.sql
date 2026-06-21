@@ -88,12 +88,22 @@ WHERE
   )
   -- (B) Year window: drops obvious source-database date errors (some PubMed
   --     records carry 1922 or other pre-1985 years for what are clearly more
-  --     recent publications). Ceiling is current_year + 1 to allow in-press
-  --     / accepted-for-publication records (publication_year ahead of today
-  --     is common for the December-publication / January-issue case).
+  --     recent publications). Ceiling is the current year: future-year
+  --     records (e.g. a 2027 stamp while it is still 2026) are almost always
+  --     not-yet-published / in-peer-review and are excluded. NULL years are
+  --     kept and bounded instead by the date gate (D) where a date exists.
   AND (
-    publication_year BETWEEN 1985 AND (extract(year from now())::int + 1)
+    publication_year BETWEEN 1985 AND extract(year from now())::int
     OR publication_year IS NULL  -- a few records lack a clean year; keep them
+  )
+  -- (D) Future-date gate: exclude any record whose publication_date is after
+  --     today. Catches in-press / ahead-of-print records that carry a forward
+  --     issue date (some journals stamp an upcoming issue month). A NULL date
+  --     is kept — absence of a date is not evidence of a future one, and such
+  --     records remain bounded by the year window in (B).
+  AND (
+    publication_date IS NULL
+    OR publication_date <= (now() AT TIME ZONE 'UTC')::date
   )
   -- (C) Topic gate: tiered by relevance signal strength.
   --
