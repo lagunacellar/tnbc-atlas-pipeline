@@ -61,3 +61,19 @@ The B2B app already has its **own Supabase project** holding the canonical schem
 
 ## 6. Rollback
 Phase 0 is non-destructive (a privilege revoke); to undo, re-grant the writes (not recommended). Phases 1–2 only tighten access; if a legitimate path breaks, grant the *specific* missing privilege or add a *specific* RLS policy rather than re-opening blanket access.
+
+## 7. Accepted advisory — `security_definer_view` on `public_bibliography`
+
+**Status: accepted by design (2026-06-21). Do not "fix" by flipping `security_invoker`.**
+
+The Supabase linter flags `public_bibliography` as a SECURITY DEFINER view (i.e. `security_invoker` is off / default), meaning it runs with the view owner's permissions rather than the querying user's. For this view that is **intentional and load-bearing**:
+
+- `anon` has **no grant** on `bibliography_records` and the base table has **RLS on with no policies** — by design, the base table is never directly reachable by the public role.
+- The view runs as its owner specifically so it can expose a **curated, `WHERE`-filtered, read-only projection** (selected columns, sanitization gates) without exposing the base table.
+- The view's `WHERE` clause **is** the public access policy. There is no per-user row-level security to "bypass": every anonymous reader is entitled to the exact same public set. `anon` holds **SELECT only** on the view (writes were revoked in Phase 0).
+
+**Why we did not take the linter's suggested fix.** Empirically verified 2026-06-21: setting `security_invoker = on` makes the view execute as `anon`, who has no base-table access → public reads return **zero rows**. To make an invoker view work you must either (a) grant `anon` SELECT on `bibliography_records` + add an RLS policy + column grants — which exposes the base table directly at `/rest/v1/bibliography_records` and reverses the base-table-private design (rejected), or (b) materialize a separate public table the pipeline refreshes — added complexity/storage that's redundant with the R2 export (rejected).
+
+**Action:** acknowledge/ignore this finding in Supabase → Advisors → Security. A guard comment is also pinned at the view definition in `sql/03_supabase_public_api.sql`.
+
+**Revisit if:** the view ever exposes per-user or sensitive data, or `anon` ever needs legitimate access to the base table — at which point the invoker + RLS-policy model (Option 2) becomes the correct design.

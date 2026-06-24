@@ -39,6 +39,17 @@
 -- when the view definition evolves over time.
 DROP VIEW IF EXISTS public_bibliography;
 
+-- ⚠ ACCEPTED ADVISORY — do NOT set security_invoker = on here.
+-- The Supabase linter flags this as a SECURITY DEFINER view (security_invoker
+-- OFF / default). That is INTENTIONAL and load-bearing: `anon` has no grant on
+-- bibliography_records and there are no RLS policies on it, so the view runs
+-- with the owner's privileges to expose a curated, WHERE-filtered, read-only
+-- projection while the base table stays fully private. The WHERE clause below
+-- IS the public access policy; there is no per-user RLS to "bypass" (every
+-- anonymous reader gets the same public set) and `anon` holds SELECT-only.
+-- Turning security_invoker ON would make the view run as the caller and return
+-- ZERO rows (or require exposing the base table directly). Rationale + the two
+-- rejected alternatives are documented in docs/RUNBOOK-database-security.md §7.
 CREATE VIEW public_bibliography AS
 SELECT
   record_id,
