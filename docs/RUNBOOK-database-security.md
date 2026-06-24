@@ -12,7 +12,7 @@
 | Severity | Finding | State |
 |---|---|---|
 | **Critical (live)** | `public_bibliography` view granted `anon` `INSERT/UPDATE/DELETE`; view is auto-updatable and `security_invoker` is OFF → anon could modify/delete `bibliography_records` *through the view*, bypassing base-table RLS. | **Fixed (Phase 0, 2026-06-21)** |
-| **High (structural)** | ~11 non-TNBC tables (`api_keys`, `audit_log`, `b2b_customers`, `business_numbers`, `businesses`, `ingest_events`, `phone_numbers`, `reporters`, `reports`, `reputation_runs`, `scrub_jobs`) have RLS **off** and full `anon`/`authenticated` DML grants. **Empty (0 rows) today** — no data leaked yet, but a public breach the moment they hold data (esp. `api_keys`, `phone_numbers`, `b2b_customers`). | Pending (Phases 1–2) |
+| **High (structural)** | ~11 non-TNBC tables (`api_keys`, `audit_log`, `b2b_customers`, `business_numbers`, `businesses`, `ingest_events`, `phone_numbers`, `reporters`, `reports`, `reputation_runs`, `scrub_jobs`) had RLS **off** and full `anon`/`authenticated` DML grants. Confirmed **empty (0 rows)** design-phase overlap; the B2B app's canonical schema/data lives in a **separate Supabase project**. | **Resolved — DROPPED 2026-06-21** |
 | Good | The four TNBC base tables (`bibliography_records`, `raw_snapshots`, `harvest_runs`, `dedup_decisions`) have RLS enabled, no policies → anon cannot read them. | OK (set in `03_*.sql`) |
 | Root cause | A blanket `GRANT ... TO anon, authenticated` on the whole `public` schema gave the public roles full DML on every table. RLS is the only barrier, and it was off on most tables. | Addressed in Phase 1 |
 
@@ -33,43 +33,25 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
 ```
 Verified: `anon` keeps `SELECT` (reads return rows), `INSERT/UPDATE/DELETE` denied, `DELETE` via PostgREST returns "permission denied for view." Zero site impact (the site only reads).
 
-### Phase 1 — Least privilege (pending review)
-Drop the blanket grants, re-grant only the public read surface, and stop future tables from auto-granting. See `sql/04_security_hardening.sql` Phase 1.
+### Drop the B2B overlap — ✅ DONE 2026-06-21
+Re-confirmed 0 rows on all 11 tables, then `DROP TABLE ... CASCADE` (FKs were internal to the set; nothing external depended on them). See `sql/04` Drop block.
 
-### Phase 2 — RLS on every public table (pending review)
-A future-proof `DO` loop enables RLS on any `public` base table that lacks it. No policies + no grants = locked to anon/authenticated; the service role still writes. See `sql/04` Phase 2.
+### Phase 1 — Least privilege — ✅ DONE 2026-06-21
+`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated`, re-`GRANT SELECT ON public_bibliography`, and `ALTER DEFAULT PRIVILEGES` to stop future auto-grants. See `sql/04` Phase 1.
 
-### Apply Phases 1–2
-```bash
-# load creds (never echo), then apply
-python3 - <<'PY'
-import re, psycopg2
-env={}
-[env.__setitem__(*re.match(r'\s*(?:export\s+)?([A-Za-z_]\w*)\s*=\s*(.*)$', l).groups())
- for l in open("../.secrets/cloud.env") if re.match(r'\s*(?:export\s+)?[A-Za-z_]', l)]
-url=env["DATABASE_URL"].strip().strip('"').strip("'")
-c=psycopg2.connect(url); c.autocommit=True
-c.cursor().execute(open("sql/04_security_hardening.sql").read())
-print("applied")
-PY
-```
-Then run the three verification checks at the bottom of `sql/04`.
+### RLS — no separate phase needed
+After the drop, the only remaining public base tables are the four TNBC tables, which already have RLS enabled (`03_*.sql`). Verified: zero public tables lack RLS.
 
-### Phase 5 — Verify, then re-check the Security Advisor
-- `anon`/`authenticated` should have **only** `SELECT` on `public_bibliography`.
-- Every `public` table reports `relrowsecurity = true`.
-- From the anon key: `GET /rest/v1/api_keys` and `DELETE /rest/v1/public_bibliography` → denied; `GET /rest/v1/public_bibliography` → rows.
-- Supabase → Advisors → Security: the RLS warning clears.
+### Verify, then re-check the Security Advisor
+Confirmed 2026-06-21:
+- `anon`/`authenticated` have **only** `SELECT` on `public_bibliography`.
+- Every remaining `public` table reports `relrowsecurity = true`; **0** tables without RLS.
+- `anon` read of the view still returns rows (101,649).
+- **Action remaining for you:** Supabase → Advisors → Security — confirm the RLS warning has cleared.
 
-## 4. B2B separation (chosen direction)
+## 4. B2B separation — resolved by dropping the overlap
 
-The non-TNBC tables will be **migrated to their own Supabase project** so the two apps cannot expose each other. Phases 1–2 are the stopgap until then. Migration outline:
-1. Stand up a new Supabase project for the B2B app.
-2. `pg_dump` the B2B tables (schema + data) from this project; restore into the new one.
-3. Repoint the B2B app's `DATABASE_URL` / API keys to the new project.
-4. Apply the same hardening (RLS + least privilege) there from day one.
-5. Once cut over and verified, `DROP` the B2B tables from this project.
-6. Until then: the B2B backend must use the **service-role** key (never anon) for writes.
+The B2B app already has its **own Supabase project** holding the canonical schema and data. The 11 tables here were empty design-phase overlap, so they were **dropped** from the TNBC project (2026-06-21) rather than migrated — this removes the cross-app attack surface entirely. No further separation work is needed on the TNBC side. (If those table *names* are ever recreated here by accident, the `ALTER DEFAULT PRIVILEGES` from Phase 1 ensures they won't auto-expose to the public roles, but they'd still need RLS — keep them out of this project.)
 
 ## 5. Operational hygiene (follow-ups)
 - Confirm the harvest pipeline and any app backend use the **service-role** key for writes, not anon.
