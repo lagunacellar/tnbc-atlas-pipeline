@@ -9,6 +9,11 @@ jobs:
   sweep:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # GITHUB_TOKEN defaults to read-only on this repo, so the issue step below
+    # failed with 403 (it needs issues:write). Grant least-privilege scopes.
+    permissions:
+      contents: read
+      issues: write
     env:
       DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
       CONTACT_EMAIL: ${{ secrets.CONTACT_EMAIL }}
@@ -39,17 +44,25 @@ jobs:
       # summary issue so the editorial team sees it on the repo's
       # Issues tab without needing to read run logs.
       # ──────────────────────────────────────────────────────────────
-      - name: Open issue if new retractions
+      - name: Open issue if any records are retracted
         if: success()
         run: |
-          NEW_COUNT=$(awk -F',' 'NR>1 && $2=="retracted"' reports/retracted.csv | wc -l)
-          if [ "$NEW_COUNT" -gt 0 ]; then
-            echo "New retractions detected: $NEW_COUNT"
-            # gh CLI is pre-installed on ubuntu-latest runners
+          # Count retracted rows in the report (skip header).
+          COUNT=$(awk -F',' 'NR>1 && $2=="retracted"' reports/retracted.csv | wc -l | tr -d ' ')
+          if [ "${COUNT:-0}" -gt 0 ]; then
+            echo "Retracted records in report: $COUNT"
+            # Ensure the label exists (idempotent); a missing label previously
+            # made `gh issue create --label` fail and reddened the whole job.
+            gh label create "retraction-review" \
+              --color B60205 \
+              --description "Records flagged by the weekly retraction sweep" \
+              --force || true
             gh issue create \
-              --title "Retraction sweep: $NEW_COUNT records flagged on $(date -u +%Y-%m-%d)" \
-              --body "Weekly retraction sweep flagged $NEW_COUNT records. See workflow artifact for the full list and check whether any cited synthesis pages need revision." \
+              --title "Retraction sweep: $COUNT records flagged on $(date -u +%Y-%m-%d)" \
+              --body "The weekly retraction sweep flagged $COUNT records as retracted. Download the workflow artifact for the full list and check whether any cited synthesis pages need revision." \
               --label "retraction-review"
+          else
+            echo "No retracted records in report; no issue opened."
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
