@@ -85,7 +85,7 @@ def main():
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT record_id, canonical_doi, pmid, title, journal
+            SELECT record_id, canonical_doi, pmid, title, journal, retraction_status
               FROM bibliography_records
         """)
         rows = cur.fetchall()
@@ -107,6 +107,7 @@ def main():
                 status = "concern"
             else:
                 status = "retracted"
+            prior = r.get("retraction_status")
             affected.append({
                 "record_id": str(r["record_id"]),
                 "doi": doi,
@@ -118,9 +119,18 @@ def main():
                 "retracted_date": notice["retracted_date"],
                 "classification": notice["classification"],
                 "status": status,
+                "prior_status": prior,
+                # "new this run" = the record's retraction status CHANGES as a
+                # result of this sweep (a brand-new retraction, or a
+                # concern->retracted escalation). Records that already carry
+                # this status are NOT re-notified — this is what stops the
+                # workflow from opening a duplicate issue every week.
+                "is_new": status != (prior or "active"),
             })
 
     log(f"affected: {len(affected)} records", "retraction")
+    newly = [a for a in affected if a["is_new"]]
+    log(f"newly flagged this run (status changed): {len(newly)}", "retraction")
 
     # Update DB
     with db() as conn:
@@ -135,17 +145,52 @@ def main():
                  WHERE record_id = %s
             """, (a["status"], a["notice_doi"], a["retracted_date"], a["record_id"]))
 
-    # Report
+    # Report — full current snapshot of every affected record (for the artifact).
     rep_path = REPORTS / "retracted.csv"
     with open(rep_path, "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=[
             "record_id", "status", "matched_on", "doi", "pmid",
             "title", "journal", "notice_doi", "retracted_date", "classification"
-        ])
+        ], extrasaction="ignore")
         w.writeheader()
         for a in affected:
             w.writerow(a)
     log(f"wrote {rep_path}", "retraction")
+
+    # Report — ONLY records whose status changed this run. The workflow opens
+    # an editorial issue only when this file has rows, so an unchanged week
+    # produces no (duplicate) issue.
+    new_path = REPORTS / "new_retractions.csv"
+    with open(new_path, "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=[
+            "record_id", "status", "prior_status", "matched_on", "doi", "pmid",
+            "title", "journal", "notice_doi", "retracted_date", "classification"
+        ], extrasaction="ignore")
+        w.writeheader()
+        for a in newly:
+            w.writerow(a)
+    log(f"wrote {new_path} ({len(newly)} rows)", "retraction")
+
+    # Pre-rendered Markdown body for the GitHub issue (only when there are
+    # changes). The workflow passes this straight to `gh issue create
+    # --body-file`, which sidesteps fragile CSV parsing in bash.
+    if newly:
+        md_path = REPORTS / "new_retractions.md"
+        with open(md_path, "w") as fh:
+            fh.write(f"The weekly retraction sweep detected **{len(newly)}** record(s) whose "
+                     "retraction status changed this run:\n\n")
+            for a in newly:
+                title = (a.get("title") or "").replace("\n", " ").strip()
+                line = f"- **{a['status']}** — {title}\n  record `{a['record_id']}`"
+                if a.get("doi"):
+                    line += f", DOI [{a['doi']}](https://doi.org/{a['doi']})"
+                if a.get("notice_doi"):
+                    line += f", retraction notice `{a['notice_doi']}`"
+                line += f" (was: {a.get('prior_status') or 'active'})\n"
+                fh.write(line)
+            fh.write("\nThe full current retracted list is attached as the workflow artifact. "
+                     "Check whether any cited synthesis pages need revision.\n")
+        log(f"wrote {md_path}", "retraction")
 
     # Summary
     by_status = {}

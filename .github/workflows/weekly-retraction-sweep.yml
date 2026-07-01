@@ -31,12 +31,15 @@ jobs:
       - name: Cross-reference against Retraction Watch
         run: python scripts/retraction_sweep.py
 
-      - name: Archive retraction report
+      - name: Archive retraction reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: retracted-records-${{ github.run_id }}
-          path: reports/retracted.csv
+          path: |
+            reports/retracted.csv
+            reports/new_retractions.csv
+          if-no-files-found: warn
           retention-days: 365
 
       # ──────────────────────────────────────────────────────────────
@@ -44,13 +47,14 @@ jobs:
       # summary issue so the editorial team sees it on the repo's
       # Issues tab without needing to read run logs.
       # ──────────────────────────────────────────────────────────────
-      - name: Open issue if any records are retracted
+      - name: Open issue only when the retracted set changed
         if: success()
         run: |
-          # Count retracted rows in the report (skip header).
-          COUNT=$(awk -F',' 'NR>1 && $2=="retracted"' reports/retracted.csv | wc -l | tr -d ' ')
-          if [ "${COUNT:-0}" -gt 0 ]; then
-            echo "Retracted records in report: $COUNT"
+          # Count data rows in new_retractions.csv with a real CSV parser
+          # (titles contain commas, so awk -F',' would miscount).
+          NEW=$(python3 -c "import csv;print(max(0,sum(1 for _ in csv.reader(open('reports/new_retractions.csv')))-1))")
+          echo "Newly-flagged (status changed) this run: $NEW"
+          if [ "$NEW" -gt 0 ]; then
             # Ensure the label exists (idempotent); a missing label previously
             # made `gh issue create --label` fail and reddened the whole job.
             gh label create "retraction-review" \
@@ -58,11 +62,11 @@ jobs:
               --description "Records flagged by the weekly retraction sweep" \
               --force || true
             gh issue create \
-              --title "Retraction sweep: $COUNT records flagged on $(date -u +%Y-%m-%d)" \
-              --body "The weekly retraction sweep flagged $COUNT records as retracted. Download the workflow artifact for the full list and check whether any cited synthesis pages need revision." \
+              --title "Retraction sweep: $NEW newly-flagged record(s) on $(date -u +%Y-%m-%d)" \
+              --body-file reports/new_retractions.md \
               --label "retraction-review"
           else
-            echo "No retracted records in report; no issue opened."
+            echo "No retraction-status changes since last run; no issue opened."
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
