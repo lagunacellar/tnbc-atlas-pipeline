@@ -67,7 +67,7 @@ tnbc_atlas_pilot/
 
 ## Browsing the bibliography without spreadsheets
 
-Open `bibliography_browser.html` in any modern browser (double-click it from your AI ML Lab folder). It is a single self-contained 6 MB file with all 14,319 records embedded; only Tailwind and Grid.js load from CDNs (small) so first open requires an internet connection, but the data and all filtering logic run locally with no further network calls.
+Open `bibliography_browser.html` in any modern browser (double-click it from your AI ML Lab folder). It is a single self-contained file with the canonical records embedded; only Tailwind and Grid.js load from CDNs (small) so first open requires an internet connection, but the data and all filtering logic run locally with no further network calls. The current build lives at `exports/bibliography_browser.html` (~46 MB, full corpus); the copy in the repo root is an early 14,319-record pilot snapshot kept for reference.
 
 **Filters:** free-text (title / journal / first author), year (incl. a "pre-2024 (Crossref re-dated)" bucket), OA status, Crossref publication type (journal-article / preprint / proceedings / book chapter / dissertation / dataset / etc.), source presence (PubMed / Europe PMC / OpenAlex / all-three / OpenAlex-only), minimum citation count.
 
@@ -77,15 +77,17 @@ Open `bibliography_browser.html` in any modern browser (double-click it from you
 
 Click DOI / PMID / OA links to open the source in a new tab.
 
-## Pilot results at a glance
+## Corpus at a glance (production)
 
-- **14,319 canonical records** after dedup of 30,231 raw records across PubMed (7,465), Europe PMC (7,109), and OpenAlex (15,657).
-- DOI coverage 96.8%; **all 13,867 DOIs enriched against Crossref and Unpaywall (100%)**.
-- **Crossref re-dated 3,165 records (22.1%)** to a publication date *before* the search window — these are TNBC papers that PubMed/Europe PMC/OpenAlex listed during 2024–2026 but Crossref shows were actually published earlier. The Year filter in the browser includes a "pre-2024 (Crossref re-dated)" option.
-- License URL on 9,139 records (65.9% of DOI-bearing).
-- Reference counts on 13,281 records (95.8%).
-- Retraction sweep against 67,678 Retraction Watch notices found **1 retracted record** in the corpus (highlighted with a red pill in the browser; details in `reports/retracted.csv`).
-- Country distribution mirrors published TNBC bibliometric reviews: US and China dominate (~50% combined), India third, then UK/Korea/Italy/France/Canada/Germany/Spain.
+The historical backfill is complete; the corpus now spans the full TNBC literature back to the mid-1980s.
+
+- **122,742 canonical records** after dedup, spanning 1985–2026. Present in PubMed (33,343), Europe PMC (40,541), and OpenAlex (111,807), with 29,302 in all three.
+- **101,106 records pass the public relevance + topic-tag gate** and are served on the website; the rest remain in the canonical corpus and exports.
+- DOI coverage 41.8% (51,266); PMID coverage 28.8% (35,346); at least one ORCID-resolved author on 37.2% (45,702).
+- Every DOI-bearing record is enriched against Crossref and Unpaywall (96.3% / 95.6% return usable metadata; the remainder are mostly dataset and preprint-server DOIs). License URL on 58.7% of DOI-bearing records; reference counts on 96.3%.
+- ~40% of the corpus has a free-to-read open-access full text (green/gold/bronze/open/hybrid).
+- Retraction sweep against ~67,700 Retraction Watch notices found **81 retracted + 4 expression-of-concern records** (77 of which surface in the public library); details in `reports/retracted.csv`.
+- Country distribution mirrors published TNBC bibliometric reviews: US and China dominate (~50% combined), then France/Japan/India/UK/Germany/Korea/Italy.
 
 See `reports/coverage_report.md` for the full breakdown.
 
@@ -114,18 +116,18 @@ For production this all runs unattended on GitHub Actions cron schedules (see `d
 
 Each harvester accepts `--start YYYY-MM-DD --end YYYY-MM-DD --max N`. Each enricher accepts `--max N --workers K` so you can run them in chunks. The Makefile exposes `make harvest`, `make enrich`, `make filter`, `make tag`, `make tier2`, `make benchmark`, `make report` as individual stages.
 
-## Constraints and caveats specific to the pilot
+## Current status and caveats
 
-- **Window:** last 24 months (2024-05-10 → 2026-05-10) only. Production calls for backfill to 2005 plus pre-2005 foundational seeding.
-- **Storage:** Postgres 14 in the sandbox (single-node, in-memory between sessions). The schema is production-portable; only the DSN changes for a managed Postgres deployment.
-- **Sources:** PubMed + Europe PMC + OpenAlex. Crossref / Unpaywall / Retraction Watch / ClinicalTrials.gov / preprint-server-direct integration are specced in `../01_phase1_bibliography_plan.md` but not implemented in this pilot.
-- **No tiering applied yet.** Tier assignment is a Phase 1 §7 deliverable that requires editorial input plus a citation-percentile pass — both deferred until full backfill.
-- **Topic tagging not run yet.** MeSH terms are imported but the controlled topic taxonomy from Phase 2 is not yet applied.
-- **Data-quality findings worth a curation pass:** spot-checking the top-cited records surfaced a few cases where OpenAlex assigned a current-window publication date to a paper whose DOI points to an older work (likely citation aliases or OpenAlex's "primary location" heuristic). These would be caught by a Crossref publication-date cross-check, which is an easy follow-up.
+- **Window:** backfill complete. The corpus spans 1985–2026 (122,742 canonical records), well past the original Phase 1 target of ~25–30k; the earlier 24-month pilot (2024-05-10 → 2026-05-10) has been superseded.
+- **Storage:** production runs against managed Postgres / Supabase; the schema is unchanged from the sandbox pilot (only the DSN differs).
+- **Sources:** PubMed + Europe PMC + OpenAlex for discovery, enriched with Crossref, Unpaywall, and Retraction Watch — all implemented and running on the weekly cadence. ClinicalTrials.gov and preprint-server-direct integration remain specced but not yet wired in.
+- **Tiering:** the tier-1 seed list (~60 foundational papers) and the algorithmic tier-2 nomination pass have both run (`reports/tier1_coverage.md`, `reports/tier2_candidates.csv`); per-page editorial sign-off is the remaining step.
+- **Topic tagging:** the rule-based topic tagger has run against the corpus (`reports/topic_tagging.md`); it plus a TNBC-relevance filter defines the 101,106-record public view. Tag coverage is intentionally conservative — records the tagger can't classify are excluded from the public view but retained in the canonical corpus.
+- **Data quality:** the Crossref publication-date cross-check is now applied (Crossref is authoritative for `publication_date`), so the citation-alias date drift seen in the pilot is corrected in the canonical corpus; a small number of upstream date outliers (e.g., 2106, 1922) remain in the raw metadata and are suppressed by the website's year-window.
 
 ## What this proves about the architecture
 
 1. The free-API spine (PubMed + Europe PMC + OpenAlex) is sufficient to assemble a real bibliography without paying for Scopus or Web of Science.
 2. Streaming JSONL + cursor checkpointing makes the harvest **resumable**, which matters for the production weekly job.
 3. The DOI → PMID → fuzzy-title dedup ladder collapses ~53% of raw records (matching expectation) with auditable provenance per canonical record.
-4. The same pipeline scales to the full Phase 1 target (~25–30k records) by widening the date window and adding the remaining sources — no architectural changes required.
+4. The same pipeline scaled past the full Phase 1 target: widening the date window and completing the backfill took it to 122,742 canonical records with no architectural changes.
