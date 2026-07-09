@@ -1,56 +1,53 @@
-# TNBC Atlas — Bibliography Coverage Report
+# TNBC Atlas — Bibliography Coverage Report (Public Evidence Library)
 
 **Generated:** 2026-07-09
-**Corpus:** Full deduplicated canonical corpus, backfill complete
-**Source snapshot:** `exports/bibliography.jsonl` (122,742 canonical records)
+**Corpus:** Public evidence-library corpus — the 101,106 records served on the website
+**Source snapshot:** `exports/bibliography_slim.json` (101,106 records), joined to `exports/bibliography.jsonl` for author-affiliation, language, and ORCID
 **Sources:** PubMed, Europe PMC, OpenAlex (free APIs only), enriched with Crossref + Unpaywall + Retraction Watch
-**Storage:** PostgreSQL / Supabase (production). This report was regenerated from the export snapshot above; the numbers reproduce the production database.
+**Storage:** PostgreSQL / Supabase (production), `public_bibliography` view. This report was regenerated from the export snapshots above.
 
-> The historical backfill is complete: the corpus now spans **1922–2026** (effective range 1985–2026; a handful of pre-1985 and post-2026 records are upstream date-quality outliers). Of the 122,742 deduplicated canonical records, **101,106 pass the public relevance + topic-tag gate** and are served on the website at [tnbc.info](https://tnbc.info); this report covers the full canonical corpus, and flags the published-view figure where it differs.
+> This report covers the **published evidence-library corpus** — the 101,106 records that pass the public relevance + topic-tag gate and are served at [tnbc.info](https://tnbc.info). They are drawn from a full deduplicated canonical corpus of 122,742 records; the ~21,600 records held back from the public view (weak-relevance, untagged, or outside the display year-window) are excluded from every count below. Headline and distribution tables come directly from the published slim export; author-affiliation, language, and ORCID come from joining the published records back to their full metadata (99.7% matched).
 
 ## Headline numbers
 
-- **Canonical records after dedup: 122,742** (101,106 surfaced in the public evidence library)
-- DOI coverage: 51,266 (41.8%)
-- PMID coverage: 35,346 (28.8%)
-- Records with at least one ORCID-resolved author: 45,702 (37.2%)
+- **Published records: 101,106** (of a 122,742-record deduplicated canonical corpus)
+- DOI coverage: 43,442 (43.0%)
+- PMID coverage: 31,139 (30.8%)
+- Records with at least one ORCID-resolved author: 36,821 (36.4%)
 - Median citation count: 0 · Max citation count: 30,917
-- Records with an OpenAlex-derived citation count: 111,807 (10,935 have no OpenAlex match and carry a null count)
+- Records with an OpenAlex-derived citation count: 91,871 (9,235 have no OpenAlex match and carry a null count)
+- Span: 1985–2026 · 22,224 records (22%) published in 2024–2026
 
 ## Enrichment status
 
-Every DOI-bearing record is submitted to Crossref and Unpaywall; coverage below is of the 51,266 DOI-bearing records.
+Coverage below is of the 43,442 DOI-bearing records; every one is submitted to Crossref and Unpaywall.
 
-| Enricher | Records | Coverage of DOI-bearing |
+| Enrichment field | Records | Coverage of DOI-bearing |
 |---|---:|---:|
-| Crossref (publication-date, type, license, refs, funders) | 49,362 | 96.3% |
-| Unpaywall (authoritative OA status, OA full-text URL) | 48,997 | 95.6% |
-| Records with a license URL | 30,116 | 58.7% |
-| Records with a Crossref reference count | 49,362 | 96.3% |
+| Crossref-typed (publication type resolved) | 41,821 | 96.3% |
+| Records with a Crossref reference count | 41,847 | 96.3% |
+| Records with a license URL | 25,104 | 57.8% |
 
-The ~3.7% of DOIs without usable Crossref metadata are mostly dataset (Figshare, Zenodo) and preprint-server DOIs not registered with Crossref; they are marked enriched-with-error in `source_provenance`.
-
-## Historical depth (backfill)
-
-100,577 records (81.9%) predate 2024-05-10 — i.e. they are the historical literature added by the backfill, sitting behind the original 24-month pilot window. Crossref is treated as authoritative for `publication_date` across the corpus, so each record is anchored to when the work was actually published rather than when a source database first surfaced it.
+The ~3.7% of DOIs without usable Crossref metadata are mostly dataset (Figshare, Zenodo) and preprint-server DOIs not registered with Crossref.
 
 ## Retraction sweep (Retraction Watch via Crossref Labs)
 
 - ~67,700 retraction notices loaded from Retraction Watch.
-- **Retracted records in this corpus: 81**
-- **Expression-of-Concern records: 4**
-- Of these, **77 (74 retracted + 3 concern) surface in the public evidence library**; the remainder sit in records filtered out of the public view.
+- **Retracted records in the published corpus: 74**
+- **Expression-of-Concern records: 3**
 
-See `reports/retracted.csv` for per-record details.
+The published corpus surfaces 77 flagged records; the full canonical corpus holds 85 (81 retracted + 4 concern), so 8 flagged records sit in records filtered out of the public view. See `reports/retracted.csv` for per-record details.
 
 ## Source overlap
 
+Provenance is available for 100,776 published records (99.7%); shares are of the full 101,106 published corpus.
+
 | Source | Records | Share |
 |---|---:|---:|
-| In PubMed | 33,343 | 27.2% |
-| In Europe PMC | 40,541 | 33.0% |
-| In OpenAlex | 111,807 | 91.1% |
-| In all three | 29,302 | 23.9% |
+| In PubMed | 29,877 | 29.5% |
+| In Europe PMC | 36,707 | 36.3% |
+| In OpenAlex | 91,647 | 90.6% |
+| In all three | 26,918 | 26.6% |
 
 OpenAlex is by far the broadest discovery source; PubMed and Europe PMC are tighter but higher-precision.
 
@@ -58,142 +55,140 @@ OpenAlex is by far the broadest discovery source; PubMed and Europe PMC are tigh
 
 | Status | Records |
 |---|---:|
-| closed | 68,598 |
-| green | 24,906 |
-| gold | 11,932 |
-| bronze | 4,950 |
-| open | 4,850 |
-| hybrid | 3,019 |
-| unknown | 4,302 |
+| closed | 56,498 |
+| green | 19,374 |
+| gold | 10,330 |
+| open | 4,749 |
+| bronze | 3,972 |
+| unknown | 3,413 |
+| hybrid | 2,669 |
 | diamond | 10 |
-| (no status) | 175 |
+| (no status) | 91 |
 
-About 40% of the corpus (green + gold + bronze + open + hybrid + diamond ≈ 49,700 records) has a free-to-read full text.
+About 41% of the published corpus (green + gold + open + bronze + hybrid + diamond = 41,104 records) has a free-to-read full text.
 
 ## Year distribution
 
 | Year | Records |
 |---|---:|
-| 2026 | 5,378 |
-| 2025 | 11,170 |
-| 2024 | 9,318 |
-| 2023 | 7,512 |
-| 2022 | 6,149 |
-| 2021 | 7,814 |
-| 2020 | 9,902 |
-| 2019 | 8,880 |
-| 2018 | 8,310 |
-| 2017 | 7,568 |
-| 2016 | 7,310 |
-| 2015 | 7,118 |
-| 2014 | 6,619 |
-| 2013 | 4,534 |
-| 2012 | 4,431 |
-| 2011 | 3,485 |
-| 2010 | 2,333 |
-| 2009 | 1,660 |
-| 2008 | 795 |
-| 2007 | 333 |
-| 2006 | 253 |
-| 2005 | 115 |
-| 2000–2004 (subtotal) | 1,088 |
-| 1990–1999 (subtotal) | 561 |
-| 1985–1989 (subtotal) | 34 |
-| pre-1985 (subtotal) | 67 |
-| post-2026 (date-quality outliers) | 5 |
+| 2026 | 4,706 |
+| 2025 | 9,284 |
+| 2024 | 8,234 |
+| 2023 | 6,500 |
+| 2022 | 5,139 |
+| 2021 | 6,571 |
+| 2020 | 8,164 |
+| 2019 | 7,259 |
+| 2018 | 6,495 |
+| 2017 | 6,282 |
+| 2016 | 5,756 |
+| 2015 | 5,877 |
+| 2014 | 5,219 |
+| 2013 | 3,757 |
+| 2012 | 3,855 |
+| 2011 | 2,824 |
+| 2010 | 1,958 |
+| 2009 | 1,399 |
+| 2008 | 712 |
+| 2007 | 292 |
+| 2006 | 224 |
+| 2005 | 91 |
+| 2000–2004 (subtotal) | 304 |
+| 1990–1999 (subtotal) | 175 |
+| 1985–1989 (subtotal) | 29 |
 
-2026 is a partial year. The website applies a display year-window of 1985 to current-year + 1, so the pre-1985 and post-2026 outlier records above are suppressed from the public library view but retained in the canonical corpus.
+2026 is a partial year. The published corpus is bounded to 1985–2026 by the website's display year-window, so the upstream date-quality outliers present in the full canonical corpus (e.g., 2106, 1922) do not appear here.
 
 ## Top 20 journals
 
 | Journal | Records |
 |---|---:|
-| Cancer Research | 7,580 |
-| DOAJ (DOAJ: Directory of Open Access Journals) | 2,662 |
-| Journal of Clinical Oncology | 2,140 |
-| American journal of cancer research | 1,615 |
-| theses.fr (ABES) | 1,210 |
-| Annals of Oncology | 1,128 |
-| Gan to kagaku ryoho. Cancer & chemotherapy | 1,101 |
-| Clinical Cancer Research | 1,025 |
-| HAL (Le Centre pour la Communication Scientifique Directe) | 1,006 |
-| Figshare | 1,000 |
-| Research Square | 913 |
-| Institutional Repositories DataBase (IRDB) | 874 |
-| Journal of B.U.ON. : official journal of the Balkan Union of Oncology | 817 |
-| Anticancer research | 794 |
-| LA Referencia (Red Federada de Repositorios Institucionales de Publicaciones Científicas) | 776 |
-| Cancers | 667 |
-| bioRxiv (Cold Spring Harbor Laboratory) | 646 |
-| American journal of translational research | 599 |
-| International journal of clinical and experimental pathology | 553 |
-| Frontiers in oncology | 526 |
+| Cancer Research | 6,608 |
+| DOAJ (DOAJ: Directory of Open Access Journals) | 2,066 |
+| Journal of Clinical Oncology | 2,021 |
+| American journal of cancer research | 1,367 |
+| Gan to kagaku ryoho. Cancer & chemotherapy | 1,072 |
+| Clinical Cancer Research | 979 |
+| theses.fr (ABES) | 804 |
+| Institutional Repositories DataBase (IRDB) | 801 |
+| Journal of B.U.ON. : official journal of the Balkan Union of Oncology | 798 |
+| HAL (Le Centre pour la Communication Scientifique Directe) | 793 |
+| Research Square | 784 |
+| Anticancer research | 750 |
+| Figshare | 737 |
+| LA Referencia (Red Federada de Repositorios Institucionales de Publicaciones Científicas) | 684 |
+| Annals of Oncology | 672 |
+| American journal of translational research | 561 |
+| Cancers | 561 |
+| International journal of clinical and experimental pathology | 535 |
+| Breast cancer research and treatment | 492 |
+| bioRxiv (Cold Spring Harbor Laboratory) | 485 |
 
 Several "journals" above are repositories and aggregators (DOAJ, HAL, Figshare, Research Square, theses.fr, IRDB, LA Referencia), reflecting the OpenAlex-sourced preprints, datasets, and dissertations in the corpus.
 
+## Publication type (Crossref)
+
+Crossref publication type is resolved for the 41,821 DOI-bearing, Crossref-enriched records; the remaining ~59,000 records (PubMed/OpenAlex without a registered Crossref type) are not typed here.
+
+| Crossref type | Records |
+|---|---:|
+| journal-article | 37,313 |
+| posted-content (preprint) | 2,644 |
+| proceedings-article | 546 |
+| peer-review | 428 |
+| book-chapter | 281 |
+| component | 247 |
+| dataset | 156 |
+| dissertation | 137 |
+| report | 30 |
+| other | 16 |
+| journal-issue | 14 |
+| edited-book | 9 |
+
 ## Top 15 countries (by author affiliation)
+
+From the 100,776 published records matched to full metadata.
 
 | Country | Records |
 |---|---:|
-| US | 21,890 |
-| CN | 16,322 |
-| FR | 3,021 |
-| JP | 3,007 |
-| IN | 2,952 |
-| GB | 2,681 |
-| DE | 2,097 |
-| KR | 2,090 |
-| IT | 2,014 |
-| CA | 1,689 |
-| ES | 1,501 |
-| TW | 1,213 |
-| AU | 1,041 |
-| CH | 1,025 |
-| TR | 981 |
-
-## Publication types (top 15)
-
-| Publication type | Records |
-|---|---:|
-| article | 58,362 |
-| Journal Article | 35,153 |
-| dissertation | 12,367 |
-| Research Support, Non-U.S. Gov't | 7,366 |
-| Abstract | 4,166 |
-| Review | 3,770 |
-| other | 2,875 |
-| preprint | 2,364 |
-| Research Support, N.I.H., Extramural | 1,876 |
-| Preprint | 1,857 |
-| Case Reports | 1,416 |
-| English Abstract | 1,000 |
-| Dissertation | 831 |
-| research-article | 790 |
-| Comparative Study | 667 |
-
-Types mix PubMed publication-type vocabulary (Journal Article, Review, Case Reports, …) with Crossref/OpenAlex types (article, preprint, dissertation, …); a record can carry more than one.
+| US | 18,661 |
+| CN | 14,837 |
+| JP | 2,735 |
+| FR | 2,458 |
+| IN | 2,427 |
+| GB | 2,273 |
+| KR | 1,921 |
+| DE | 1,777 |
+| IT | 1,726 |
+| CA | 1,404 |
+| ES | 1,282 |
+| TW | 1,027 |
+| CH | 911 |
+| AU | 900 |
+| TR | 852 |
 
 ## Language distribution (top 10)
 
+From the 100,776 published records matched to full metadata.
+
 | Language | Records |
 |---|---:|
-| en | 65,721 |
-| eng | 39,796 |
-| zh | 2,673 |
-| ja | 1,952 |
-| fr | 1,424 |
-| pt | 1,189 |
-| jpn | 1,117 |
-| chi | 938 |
-| es | 908 |
-| id | 488 |
+| en | 53,681 |
+| eng | 35,504 |
+| ja | 1,412 |
+| jpn | 1,070 |
+| fr | 936 |
+| chi | 911 |
+| zh | 907 |
+| pt | 828 |
+| es | 498 |
+| id | 384 |
 
-`en`/`eng`, `ja`/`jpn`, and `zh`/`chi` are the same languages under different source vocabularies (ISO 639-1 from Crossref/OpenAlex vs. three-letter codes from PubMed); combined, English is ~105,500 records.
+`en`/`eng`, `ja`/`jpn`, and `zh`/`chi` are the same languages under different source vocabularies (ISO 639-1 from Crossref/OpenAlex vs. three-letter codes from PubMed); combined, English is ~89,200 records.
 
 ## Notes and caveats
 
-- **Backfill complete.** This is the full production corpus, not the 24-month pilot. It spans 1985–2026 effectively (122,742 canonical records), of which 101,106 pass the public relevance + topic-tag gate and appear on the website.
-- **Country attribution** comes from OpenAlex author-institution country codes only; records without an OpenAlex match lack country data, so shares understate coverage.
-- **Citation counts are OpenAlex-derived.** The 10,935 records with no OpenAlex match carry a null `citation_count`, which is why the median is 0.
-- **Upstream date-quality outliers** (e.g., a 2106 or a 1922 record) originate in source metadata and are suppressed by the website's year-window, not corrected in the canonical corpus.
-- **Snapshot timing.** Retraction totals reflect the `bibliography.jsonl` export; the weekly retraction sweep runs continuously, so live counts may differ slightly.
+- **Scope.** This report covers the published evidence-library corpus (101,106 records). The full deduplicated canonical corpus is 122,742; records held back by the public relevance + topic-tag gate are excluded from every count above. For the full-corpus view, regenerate from `exports/bibliography.jsonl`.
+- **Country, language, and ORCID** are computed by joining the published records back to full metadata; 330 records (0.3%) without a confident DOI/PMID/title match are excluded from those three sections only.
+- **Citation counts are OpenAlex-derived.** The 9,235 records with no OpenAlex match carry a null `citation_count`, which is why the median is 0.
+- **Snapshot timing.** Retraction totals reflect the current export; the weekly retraction sweep runs continuously, so live counts may differ slightly.
