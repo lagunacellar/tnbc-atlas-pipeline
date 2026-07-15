@@ -22,6 +22,7 @@ from __future__ import annotations
 import csv
 import io
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -35,11 +36,34 @@ RW_URL = f"https://api.labs.crossref.org/data/retractionwatch?{CONTACT_EMAIL}"
 
 
 def download_rw_csv() -> str:
-    log(f"downloading Retraction Watch CSV from Crossref Labs", "retraction")
-    r = requests.get(RW_URL, headers={"User-Agent": USER_AGENT}, timeout=120)
-    r.raise_for_status()
-    log(f"  payload: {len(r.content)/1024/1024:.1f} MB", "retraction")
-    return r.text
+    """Download the Retraction Watch CSV, retrying transient upstream failures.
+
+    Crossref Labs occasionally returns 5xx or times out; a single blip should
+    not fail the whole weekly sweep. Retry with exponential backoff on
+    transient errors (5xx, 429, network/timeout) and fail fast on 4xx client
+    errors (e.g. a malformed URL), which retries won't fix.
+    """
+    log("downloading Retraction Watch CSV from Crossref Labs", "retraction")
+    attempts = 5
+    last_err = None
+    for attempt in range(1, attempts + 1):
+        try:
+            r = requests.get(RW_URL, headers={"User-Agent": USER_AGENT}, timeout=120)
+            r.raise_for_status()
+            log(f"  payload: {len(r.content)/1024/1024:.1f} MB", "retraction")
+            return r.text
+        except requests.exceptions.RequestException as e:
+            last_err = e
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status is not None and 400 <= status < 500 and status != 429:
+                raise  # genuine client error — retrying won't help
+            if attempt == attempts:
+                break
+            wait = min(60, 5 * 2 ** (attempt - 1))
+            log(f"  attempt {attempt}/{attempts} failed "
+                f"({status or type(e).__name__}); retrying in {wait}s", "retraction")
+            time.sleep(wait)
+    raise last_err
 
 
 def parse_rw(csv_text: str) -> list[dict]:
