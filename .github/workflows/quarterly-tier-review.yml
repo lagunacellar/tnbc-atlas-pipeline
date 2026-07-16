@@ -9,8 +9,13 @@ jobs:
   tier-review:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The issue step needs issues:write (GITHUB_TOKEN defaults to read-only).
+    permissions:
+      contents: read
+      issues: write
     env:
       DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+      CONTACT_EMAIL: ${{ secrets.CONTACT_EMAIL }}
 
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +26,12 @@ jobs:
           cache: 'pip'
 
       - run: pip install -r requirements.txt
+
+      # tier1_benchmark.py and nominate_tier2.py read exports/bibliography.jsonl,
+      # which is gitignored and only produced by the export step. Generate it
+      # from the DB first (DATABASE_URL is set above), like the weekly harvest.
+      - name: Generate corpus export (exports/bibliography.jsonl)
+        run: python scripts/export_and_report.py
 
       - name: Run tier-1 recall benchmark
         run: python scripts/tier1_benchmark.py
@@ -41,6 +52,11 @@ jobs:
 
       - name: Open editorial-review issue
         run: |
+          # Ensure the label exists (idempotent) so issue creation can't fail on it.
+          gh label create "editorial-review" \
+            --color 5319E7 \
+            --description "Quarterly tier-review packets for the editorial board" \
+            --force || true
           gh issue create \
             --title "Quarterly tier review — $(date -u +%Y-Q$(( ( $(date +%-m) - 1 ) / 3 + 1 )))" \
             --label "editorial-review" \
