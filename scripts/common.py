@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import os
 import time
+import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import psycopg
+import requests
 from psycopg.rows import dict_row
 
 # Default to the repo root (parent of scripts/). Overridable via env for
@@ -111,6 +113,50 @@ class RateLimiter:
         if delay > 0:
             time.sleep(delay)
         self.last = time.monotonic()
+
+
+# Statuses worth another attempt: rate limiting and upstream/server-side blips.
+RETRY_STATUS = {429, 500, 502, 503, 504}
+
+# Truncated bodies surface as ChunkedEncodingError (a RequestException) when the
+# connection drops, but NCBI also returns 200 with a half-written XML document,
+# which only fails at parse time — hence ET.ParseError and ValueError (JSON).
+RETRYABLE = (requests.RequestException, ET.ParseError, ValueError)
+
+
+def request_with_retry(method: str, url: str, *, parse: Callable[[Any], Any] | None = None,
+                       attempts: int = 5, backoff: float = 2.0, source: str = "harvest",
+                       **kwargs) -> Any:
+    """Issue an HTTP request, retrying transient failures with exponential backoff.
+
+    Retries dropped connections, timeouts, truncated bodies, 429 and 5xx. A
+    `parse` callable runs inside the retry so a body that arrives corrupt is
+    re-fetched rather than crashing the harvest; its result is returned in place
+    of the response. Permanent 4xx and a final exhausted attempt both raise.
+    """
+    delay = backoff
+    for attempt in range(1, attempts + 1):
+        try:
+            r = requests.request(method, url, **kwargs)
+            if r.status_code in RETRY_STATUS:
+                raise requests.HTTPError(f"HTTP {r.status_code}", response=r)
+            r.raise_for_status()
+            return parse(r) if parse else r
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status is not None and status not in RETRY_STATUS:
+                raise  # permanent — a bad query won't fix itself
+            if attempt == attempts:
+                raise
+            log(f"{method} {url.rsplit('/', 1)[-1]} → HTTP {status}; "
+                f"retry {attempt}/{attempts - 1} in {delay:.0f}s", source)
+        except RETRYABLE as e:
+            if attempt == attempts:
+                raise
+            log(f"{method} {url.rsplit('/', 1)[-1]} → {type(e).__name__}; "
+                f"retry {attempt}/{attempts - 1} in {delay:.0f}s", source)
+        time.sleep(delay)
+        delay = min(delay * 2, 60.0)
 
 
 def record_run(source: str, query: str, window_start: str, window_end: str, n: int, status: str, notes: str = "") -> None:

@@ -18,8 +18,6 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
-import requests
-
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
     CONTACT_EMAIL,
@@ -30,6 +28,7 @@ from common import (
     RateLimiter,
     log,
     record_run,
+    request_with_retry,
     write_jsonl,
 )
 
@@ -80,10 +79,9 @@ def esearch_pmids(query: str, mindate: str, maxdate: str) -> list[str]:
             "tool": "tnbc-atlas",
             "email": CONTACT_EMAIL,
         }
-        r = requests.get(f"{EUTILS}/esearch.fcgi", params=params,
-                          headers={"User-Agent": USER_AGENT}, timeout=30)
-        r.raise_for_status()
-        data = r.json()
+        data = request_with_retry("GET", f"{EUTILS}/esearch.fcgi", parse=lambda r: r.json(),
+                                  source="pubmed", params=params,
+                                  headers={"User-Agent": USER_AGENT}, timeout=30)
         result = data.get("esearchresult", {})
         batch = result.get("idlist", [])
         pmids.extend(batch)
@@ -111,10 +109,10 @@ def efetch_batch(pmids: list[str], out_fh=None, start_idx: int = 0) -> list[dict
             "tool": "tnbc-atlas",
             "email": CONTACT_EMAIL,
         }
-        r = requests.post(f"{EUTILS}/efetch.fcgi", data=params,
-                           headers={"User-Agent": USER_AGENT}, timeout=60)
-        r.raise_for_status()
-        root = ET.fromstring(r.text)
+        root = request_with_retry("POST", f"{EUTILS}/efetch.fcgi",
+                                  parse=lambda r: ET.fromstring(r.text),
+                                  source="pubmed", data=params,
+                                  headers={"User-Agent": USER_AGENT}, timeout=60)
         batch_recs = [parse_article(a) for a in root.findall(".//PubmedArticle")]
         out.extend(batch_recs)
         if out_fh is not None:

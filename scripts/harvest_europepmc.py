@@ -15,8 +15,6 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import requests
-
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
     SNAPSHOTS,
@@ -26,6 +24,7 @@ from common import (
     RateLimiter,
     log,
     record_run,
+    request_with_retry,
     write_jsonl,
 )
 
@@ -77,10 +76,9 @@ def search(query: str, out_fh=None, max_records: int | None = None) -> int:
             "cursorMark": cursor,
             "resultType": "core",
         }
-        r = requests.get(EPMC, params=params,
-                          headers={"User-Agent": USER_AGENT}, timeout=60)
-        r.raise_for_status()
-        data = r.json()
+        data = request_with_retry("GET", EPMC, parse=lambda r: r.json(),
+                                  source="europepmc", params=params,
+                                  headers={"User-Agent": USER_AGENT}, timeout=60)
         results = data.get("resultList", {}).get("result", [])
         if out_fh is not None:
             for raw in results:

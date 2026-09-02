@@ -15,8 +15,6 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import requests
-
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
     CONTACT_EMAIL,
@@ -27,6 +25,7 @@ from common import (
     RateLimiter,
     log,
     record_run,
+    request_with_retry,
     write_jsonl,
 )
 
@@ -73,12 +72,9 @@ def search(start: str, end: str, out_fh=None, max_records: int | None = None,
             "cursor": cursor,
             "mailto": CONTACT_EMAIL,
         }
-        r = requests.get(OPENALEX, params=params,
-                          headers={"User-Agent": USER_AGENT}, timeout=60)
-        if r.status_code != 200:
-            log(f"HTTP {r.status_code}: {r.text[:200]}", "openalex")
-            r.raise_for_status()
-        data = r.json()
+        data = request_with_retry("GET", OPENALEX, parse=lambda r: r.json(),
+                                  source="openalex", params=params,
+                                  headers={"User-Agent": USER_AGENT}, timeout=60)
         results = data.get("results", [])
         if out_fh is not None:
             for raw in results:
