@@ -2,7 +2,8 @@ name: Weekly retraction sweep
 
 on:
   schedule:
-    - cron: '0 12 * * 2'     # Tuesdays 12:00 UTC
+    # Off-the-hour on purpose — see weekly-harvest.yml for the rationale.
+    - cron: '23 12 * * 2'    # Tuesdays 12:23 UTC
   workflow_dispatch:
 
 jobs:
