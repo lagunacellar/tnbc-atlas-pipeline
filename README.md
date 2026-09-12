@@ -81,13 +81,15 @@ Click DOI / PMID / OA links to open the source in a new tab.
 
 The historical backfill is complete; the corpus now spans the full TNBC literature back to the mid-1980s.
 
-- **122,742 canonical records** after dedup, spanning 1985–2026. Present in PubMed (33,343), Europe PMC (40,541), and OpenAlex (111,807), with 29,302 in all three.
-- **101,106 records pass the public relevance + topic-tag gate** and are served on the website; the rest remain in the canonical corpus and exports.
-- DOI coverage 41.8% (51,266); PMID coverage 28.8% (35,346); at least one ORCID-resolved author on 37.2% (45,702).
-- Every DOI-bearing record is enriched against Crossref and Unpaywall (96.3% / 95.6% return usable metadata; the remainder are mostly dataset and preprint-server DOIs). License URL on 58.7% of DOI-bearing records; reference counts on 96.3%.
-- ~40% of the corpus has a free-to-read open-access full text (green/gold/bronze/open/hybrid).
-- Retraction sweep against ~70,000 Retraction Watch notices found **88 flagged records — 84 retracted + 4 expression-of-concern** in the canonical corpus; see `reports/coverage_report.md` for how many surface in the public library, and `reports/retracted.csv` for per-record details.
-- Country distribution mirrors published TNBC bibliometric reviews: US and China dominate (~50% combined), then France/Japan/India/UK/Germany/Korea/Italy.
+- **130,053 canonical records** after dedup. Present in PubMed (33,984), Europe PMC (42,482), and OpenAlex (117,434), with 29,678 in all three.
+- **125,725 records pass the TNBC relevance gate** (4,235 dropped for no TNBC / basal-like / ER−PR−HER2− signal; 93 downgraded for editorial review). The public library applies a further topic-tag-or-tier and 1985+ year filter on top of that gate, so the served count is lower — see `reports/coverage_report.md`.
+- DOI coverage 40.4% (52,599); PMID coverage 27.8% (36,097); at least one ORCID-resolved author on 36.3% (47,239).
+- Every DOI-bearing record is enriched against Crossref and Unpaywall (100.0% each). License URL on 58.7% of DOI-bearing records; Crossref reference counts on 95.9%.
+- ~41% of the corpus has a free-to-read open-access full text (53,407 records: green/gold/bronze/open/hybrid/diamond).
+- Retraction sweep against ~70,000 Retraction Watch notices found **88 flagged records — 84 retracted + 4 expression-of-concern** in the canonical corpus; per-record details in `reports/retracted.csv`.
+- Country distribution mirrors published TNBC bibliometric reviews: US (22,535) and China (16,543) lead by a wide margin, then France/Japan/India/UK/Germany/Korea/Italy.
+
+Corpus figures are from the 2026-09-07 harvest (`coverage_report.md` + `openalex_postfilter.md`); retraction counts from the 2026-09-11 sweep. Both refresh on the weekly cron, so these drift between re-cuts.
 
 See `reports/coverage_report.md` for the full breakdown.
 
