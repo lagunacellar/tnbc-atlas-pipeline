@@ -86,7 +86,7 @@ The historical backfill is complete; the corpus now spans the full TNBC literatu
 - DOI coverage 41.8% (51,266); PMID coverage 28.8% (35,346); at least one ORCID-resolved author on 37.2% (45,702).
 - Every DOI-bearing record is enriched against Crossref and Unpaywall (96.3% / 95.6% return usable metadata; the remainder are mostly dataset and preprint-server DOIs). License URL on 58.7% of DOI-bearing records; reference counts on 96.3%.
 - ~40% of the corpus has a free-to-read open-access full text (green/gold/bronze/open/hybrid).
-- Retraction sweep against ~67,700 Retraction Watch notices found **81 retracted + 4 expression-of-concern records** (77 of which surface in the public library); details in `reports/retracted.csv`.
+- Retraction sweep against ~70,000 Retraction Watch notices found **88 flagged records — 84 retracted + 4 expression-of-concern** in the canonical corpus; see `reports/coverage_report.md` for how many surface in the public library, and `reports/retracted.csv` for per-record details.
 - Country distribution mirrors published TNBC bibliometric reviews: US and China dominate (~50% combined), then France/Japan/India/UK/Germany/Korea/Italy.
 
 See `reports/coverage_report.md` for the full breakdown.
