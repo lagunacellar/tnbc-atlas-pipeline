@@ -75,6 +75,15 @@ jobs:
       - name: Rebuild browser asset
         run: python scripts/build_browser.py
 
+      # The website's Evidence Library fetches bibliography_slim.json from R2.
+      # This step was missing until 2026-09: every other export refreshed
+      # weekly while the site's own data file sat frozen at its 2026-06-21
+      # hand-built copy, so the public record count stopped tracking the
+      # corpus. Reads public_bibliography (the relevance + tag/tier + year
+      # gate), so it must run after the post-filter and tagging steps.
+      - name: Rebuild website slim JSON
+        run: python scripts/build_site_slim_json.py
+
       # ──────────────────────────────────────────────────────────────
       # Publish exports to Cloudflare R2
       # ──────────────────────────────────────────────────────────────
