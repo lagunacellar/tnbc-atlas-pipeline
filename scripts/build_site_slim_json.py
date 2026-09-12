@@ -44,6 +44,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -56,6 +57,11 @@ from common import EXPORTS, db, log
 # https://exports.tnbc.info/latest/bibliography_slim.json. The website's
 # library page fetches from that R2 URL.
 SLIM_DEFAULT_OUT = EXPORTS / "bibliography_slim.json"
+
+# Headline corpus figures, uploaded to R2 by the same step. The website reads
+# this at build time (see src/data/corpus.ts) so its "N records" claims track
+# the pipeline rather than being retyped by hand each time the corpus grows.
+STATS_DEFAULT_OUT = EXPORTS / "stats.json"
 
 
 def first_author_display(authors: list[dict] | None) -> str | None:
@@ -127,10 +133,56 @@ def project(record: dict) -> dict:
     }
 
 
+def build_stats(rows: list[dict], canonical_count: int) -> dict:
+    """Headline figures for the website, so its pages never hardcode a count.
+
+    Published vs canonical are deliberately separate: the website's corpus
+    claims describe `public_bibliography` (what a visitor can actually search),
+    while `canonical_records` is the full deduplicated harvest behind it.
+    Conflating the two is how the site ended up claiming 101,106 "canonical"
+    records when canonical was really 130,587.
+    """
+    years = [r.get("publication_year") for r in rows]
+    years = [y for y in years if isinstance(y, int)]
+    this_year = datetime.now(timezone.utc).year
+
+    # Counted over the published view, not the canonical corpus: these figures
+    # sit next to "N records" on the website, so they must describe the same
+    # population a visitor is searching.
+    retracted = sum(1 for r in rows if r.get("retraction_status") == "retracted")
+    concern = sum(1 for r in rows if r.get("retraction_status") == "concern")
+    free_oa = {"green", "gold", "bronze", "open", "hybrid", "diamond"}
+    oa_free = sum(1 for r in rows if (r.get("oa_status") or "").lower() in free_oa)
+    # The public view admits next-year dates for in-press records; a span
+    # label reading "1985-2027" off a handful of those is just confusing.
+    year_max = min(max(years), this_year) if years else None
+    recent_from = this_year - 2
+    recent = sum(1 for y in years if y >= recent_from)
+    n = len(rows)
+    return {
+        "published_records": n,
+        "canonical_records": canonical_count,
+        "year_min": min(years) if years else None,
+        "year_max": year_max,
+        "recent_from": recent_from,
+        "recent_to": this_year,
+        "recent_records": recent,
+        "recent_pct": round(recent / n * 100) if n else 0,
+        "retracted_records": retracted,
+        "concern_records": concern,
+        "flagged_records": retracted + concern,
+        "oa_free_records": oa_free,
+        "oa_free_pct": round(oa_free / n * 100) if n else 0,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--out", type=Path, default=SLIM_DEFAULT_OUT,
                     help=f"Output path (default: {SLIM_DEFAULT_OUT})")
+    ap.add_argument("--stats-out", type=Path, default=STATS_DEFAULT_OUT,
+                    help=f"Headline-stats output path (default: {STATS_DEFAULT_OUT})")
     ap.add_argument("--pretty", action="store_true",
                     help="Emit indented JSON (~2x file size). Default: compact one-line.")
     args = ap.parse_args()
@@ -162,7 +214,9 @@ def main() -> None:
                      citation_count DESC NULLS LAST
         """)
         rows = cur.fetchall()
-    log(f"  fetched {len(rows):,} rows", "slim")
+        cur.execute("SELECT count(*) AS n FROM bibliography_records")
+        canonical_count = cur.fetchone()["n"]
+    log(f"  fetched {len(rows):,} rows (canonical corpus: {canonical_count:,})", "slim")
 
     log("projecting to slim schema…", "slim")
     out_records = [project(r) for r in rows]
@@ -176,6 +230,19 @@ def main() -> None:
             json.dump(out_records, fh, ensure_ascii=False)
     size_mb = args.out.stat().st_size / 1024 / 1024
     log(f"  wrote {len(out_records):,} records ({size_mb:.1f} MB)", "slim")
+
+    # Tiny companion file: the website reads this at build time so its corpus
+    # figures track the pipeline instead of being retyped by hand.
+    stats = build_stats(rows, canonical_count)
+    args.stats_out.parent.mkdir(parents=True, exist_ok=True)
+    with open(args.stats_out, "w") as fh:
+        json.dump(stats, fh, indent=2)
+        fh.write("\n")
+    log(f"  wrote {args.stats_out.name}: "
+        f"{stats['published_records']:,} published / "
+        f"{stats['canonical_records']:,} canonical, "
+        f"{stats['year_min']}-{stats['year_max']}, "
+        f"{stats['recent_pct']}% since {stats['recent_from']}", "slim")
 
     if size_mb > 80:
         log(

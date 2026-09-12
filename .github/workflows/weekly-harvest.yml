@@ -108,6 +108,31 @@ jobs:
               --cache-control "public, max-age=86400"
 
       # ──────────────────────────────────────────────────────────────
+      # Tell the website to rebuild, so its corpus figures pick up the
+      # stats.json we just published. Without this the site would keep
+      # rendering whatever numbers were current at its last deploy.
+      #
+      # Non-fatal on purpose: the data is already live on R2 at this point,
+      # and a missing/expired token should not red an otherwise good harvest.
+      # If SITE_REBUILD_TOKEN is unset the step is skipped with a notice.
+      # ──────────────────────────────────────────────────────────────
+      - name: Trigger website rebuild
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SITE_REBUILD_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::notice::SITE_REBUILD_TOKEN not set — skipping website rebuild."
+            echo "The corpus figures on tnbc.info will not update until the site is redeployed."
+            exit 0
+          fi
+          gh api repos/lagunacellar/tnbc/dispatches \
+            -f event_type=corpus-updated \
+            -F "client_payload[run_id]=${GITHUB_RUN_ID}" \
+            && echo "Dispatched corpus-updated to lagunacellar/tnbc"
+
+      # ──────────────────────────────────────────────────────────────
       # Upload current coverage report as a workflow artifact
       # ──────────────────────────────────────────────────────────────
       - name: Archive coverage report
