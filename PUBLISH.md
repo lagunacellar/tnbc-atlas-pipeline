@@ -71,7 +71,7 @@ These directories will be created on first run, but they should never be committ
 
 2. **Initialize from this directory**:
    ```bash
-   cd "AI ML Lab/tnbc_atlas_pilot"
+   cd ~/Documents/Claude/Projects/tnbc/tnbc_atlas_pilot
    git init
    git add LICENSE README.md CONTRIBUTING.md PUBLISH.md Makefile requirements.txt .gitignore
    git add sql/ scripts/ curation/ docs/ .github/

@@ -67,7 +67,7 @@ tnbc_atlas_pilot/
 
 ## Browsing the bibliography without spreadsheets
 
-Open `bibliography_browser.html` in any modern browser (double-click it from your AI ML Lab folder). It is a single self-contained file with the canonical records embedded; only Tailwind and Grid.js load from CDNs (small) so first open requires an internet connection, but the data and all filtering logic run locally with no further network calls. The current build lives at `exports/bibliography_browser.html` (~46 MB, full corpus); the copy in the repo root is an early 14,319-record pilot snapshot kept for reference.
+Open `bibliography_browser.html` in any modern browser (double-click it from this project folder). It is a single self-contained file with the canonical records embedded; only Tailwind and Grid.js load from CDNs (small) so first open requires an internet connection, but the data and all filtering logic run locally with no further network calls. The current build lives at `exports/bibliography_browser.html` (~46 MB, full corpus); the copy in the repo root is an early 14,319-record pilot snapshot kept for reference.
 
 **Filters:** free-text (title / journal / first author), year (incl. a "pre-2024 (Crossref re-dated)" bucket), OA status, Crossref publication type (journal-article / preprint / proceedings / book chapter / dissertation / dataset / etc.), source presence (PubMed / Europe PMC / OpenAlex / all-three / OpenAlex-only), minimum citation count.
 
